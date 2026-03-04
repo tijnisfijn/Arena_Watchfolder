@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Resolume Arena — Watch Folder Sync</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: #1a1a2e;
+    color: #e0e0e0;
+    min-height: 100vh;
+    padding: 24px;
+  }
+
+  h1 {
+    font-size: 20px;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 24px;
+    letter-spacing: 0.5px;
+  }
+  h1 span { color: #7c83ff; }
+
+  .card {
+    background: #16213e;
+    border: 1px solid #2a2a4a;
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+
+  .card-title {
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #8888aa;
+    margin-bottom: 14px;
+  }
+
+  .row {
+    display: flex;
+    gap: 10px;
+    align-items: end;
+    flex-wrap: wrap;
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+    min-width: 120px;
+  }
+
+  .field.small { flex: 0 0 100px; }
+
+  label {
+    font-size: 11px;
+    color: #8888aa;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  input {
+    background: #0f1729;
+    border: 1px solid #2a2a4a;
+    border-radius: 6px;
+    color: #e0e0e0;
+    padding: 10px 12px;
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  input:focus { border-color: #7c83ff; }
+  input::placeholder { color: #555; }
+
+  button {
+    background: #7c83ff;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 10px 20px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s, opacity 0.2s;
+    white-space: nowrap;
+  }
+  button:hover { background: #6a70e0; }
+  button:active { background: #5a60c0; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  button.secondary {
+    background: #2a2a4a;
+    color: #ccc;
+  }
+  button.secondary:hover { background: #3a3a5a; }
+
+  button.danger {
+    background: #e05555;
+  }
+  button.danger:hover { background: #c04444; }
+
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    margin-top: 12px;
+  }
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #555;
+  }
+  .status-dot.connected { background: #4caf50; }
+  .status-dot.watching { background: #ff9800; animation: pulse 1.5s infinite; }
+  .status-dot.disconnected { background: #e05555; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+  }
+
+  #log-output {
+    background: #0f1729;
+    border: 1px solid #2a2a4a;
+    border-radius: 6px;
+    padding: 12px;
+    font-family: "SF Mono", "Fira Code", "Cascadia Code", Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    height: 300px;
+    overflow-y: auto;
+    color: #a0a0c0;
+  }
+  #log-output .line { padding: 1px 0; }
+  #log-output .time { color: #555; }
+  #log-output .error { color: #e05555; }
+
+  .container { max-width: 720px; margin: 0 auto; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1><span>Resolume Arena</span> &mdash; Watch Folder Sync</h1>
+
+  <!-- Connection -->
+  <div class="card">
+    <div class="card-title">Arena Connection</div>
+    <div class="row">
+      <div class="field">
+        <label for="host">Host</label>
+        <input type="text" id="host" value="127.0.0.1" placeholder="127.0.0.1">
+      </div>
+      <div class="field small">
+        <label for="arena-port">Port</label>
+        <input type="number" id="arena-port" value="8080" placeholder="8080">
+      </div>
+      <button id="btn-connect" onclick="connectArena()">Connect</button>
+    </div>
+    <div class="status-badge">
+      <span class="status-dot disconnected" id="conn-dot"></span>
+      <span id="conn-text">Disconnected</span>
+    </div>
+  </div>
+
+  <!-- Sync Settings -->
+  <div class="card">
+    <div class="card-title">Sync Settings</div>
+    <div class="row">
+      <div class="field">
+        <label for="folder">Folder Path</label>
+        <input type="text" id="folder" placeholder="/path/to/media">
+      </div>
+      <div class="field small">
+        <label for="layer">Layer</label>
+        <input type="number" id="layer" value="1" min="1" placeholder="1">
+      </div>
+    </div>
+    <div class="actions">
+      <button id="btn-sync" onclick="syncNow()" disabled>Sync Now</button>
+      <button id="btn-watch-start" class="secondary" onclick="startWatch()" disabled>Start Watch</button>
+      <button id="btn-watch-stop" class="danger" onclick="stopWatch()" disabled style="display:none">Stop Watch</button>
+    </div>
+    <div class="status-badge" id="watch-status" style="display:none">
+      <span class="status-dot watching"></span>
+      <span>Watching for changes...</span>
+    </div>
+  </div>
+
+  <!-- Log -->
+  <div class="card">
+    <div class="card-title">Log</div>
+    <div id="log-output"></div>
+  </div>
+</div>
+
+<script>
+  let connected = false;
+  let watching = false;
+  let evtSource = null;
+
+  // --- SSE log stream ---
+  function connectSSE() {
+    if (evtSource) evtSource.close();
+    evtSource = new EventSource("/api/logs");
+    evtSource.onmessage = (event) => {
+      const entry = JSON.parse(event.data);
+      appendLog(entry.time, entry.text);
+    };
+    evtSource.onerror = () => {
+      // Will auto-reconnect
+    };
+  }
+
+  function appendLog(isoTime, text) {
+    const el = document.getElementById("log-output");
+    const line = document.createElement("div");
+    line.className = "line";
+    const time = isoTime ? isoTime.split("T")[1].split(".")[0] : "";
+    const isError = /error/i.test(text);
+    line.innerHTML = `<span class="time">[${time}]</span> <span class="${isError ? 'error' : ''}">${escHtml(text)}</span>`;
+    el.appendChild(line);
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  // --- API calls ---
+  async function connectArena() {
+    const host = document.getElementById("host").value;
+    const port = document.getElementById("arena-port").value;
+    const btn = document.getElementById("btn-connect");
+    btn.disabled = true;
+    btn.textContent = "Connecting...";
+
+    try {
+      const res = await fetch("/api/connect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ host, port: parseInt(port) }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setConnected(true);
+      } else {
+        setConnected(false);
+      }
+    } catch (e) {
+      setConnected(false);
+    }
+    btn.disabled = false;
+    btn.textContent = "Connect";
+  }
+
+  async function syncNow() {
+    const folder = document.getElementById("folder").value;
+    const layer = document.getElementById("layer").value;
+    const btn = document.getElementById("btn-sync");
+    btn.disabled = true;
+    btn.textContent = "Syncing...";
+
+    try {
+      const res = await fetch("/api/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ folder, layer: parseInt(layer) }),
+      });
+      await res.json();
+    } catch (e) {
+      // Error logged via SSE
+    }
+    btn.disabled = false;
+    btn.textContent = "Sync Now";
+  }
+
+  async function startWatch() {
+    const folder = document.getElementById("folder").value;
+    const layer = document.getElementById("layer").value;
+
+    try {
+      const res = await fetch("/api/watch/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ folder, layer: parseInt(layer) }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setWatching(true);
+      }
+    } catch (e) {
+      // Error logged via SSE
+    }
+  }
+
+  async function stopWatch() {
+    try {
+      await fetch("/api/watch/stop", { method: "POST" });
+      setWatching(false);
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  // --- UI state ---
+  function setConnected(state) {
+    connected = state;
+    const dot = document.getElementById("conn-dot");
+    const text = document.getElementById("conn-text");
+    dot.className = "status-dot " + (state ? "connected" : "disconnected");
+    text.textContent = state ? "Connected" : "Disconnected";
+    document.getElementById("btn-sync").disabled = !state;
+    document.getElementById("btn-watch-start").disabled = !state;
+  }
+
+  function setWatching(state) {
+    watching = state;
+    document.getElementById("btn-watch-start").style.display = state ? "none" : "";
+    document.getElementById("btn-watch-stop").style.display = state ? "" : "none";
+    document.getElementById("btn-watch-stop").disabled = false;
+    document.getElementById("btn-sync").disabled = state;
+    document.getElementById("watch-status").style.display = state ? "" : "none";
+
+    // Poll for watch stopping
+    if (state) {
+      const poll = setInterval(async () => {
+        try {
+          const res = await fetch("/api/status");
+          const data = await res.json();
+          if (!data.watching) {
+            setWatching(false);
+            clearInterval(poll);
+          }
+        } catch (e) {
+          clearInterval(poll);
+        }
+      }, 2000);
+    }
+  }
+
+  // Start SSE on page load
+  connectSSE();
+</script>
+</body>
+</html>
