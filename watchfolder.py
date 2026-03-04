@@ -489,6 +489,19 @@ def create_web_app():
             "layer": _state["layer"],
         })
 
+    @app.route("/api/shutdown", methods=["POST"])
+    def shutdown():
+        """Shut down the Flask server gracefully."""
+        log("  Server shutdown requested from web UI.")
+        # Stop watch mode if running
+        _state["watching"] = False
+        # Schedule shutdown after response is sent
+        def do_shutdown():
+            time.sleep(0.5)
+            os._exit(0)
+        threading.Thread(target=do_shutdown, daemon=True).start()
+        return jsonify({"ok": True})
+
     @app.route("/api/logs")
     def logs_stream():
         """SSE endpoint — streams log messages to the browser."""

@@ -156,7 +156,10 @@
 </head>
 <body>
 <div class="container">
-  <h1><span>Resolume Arena</span> &mdash; Watch Folder Sync</h1>
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:24px;">
+    <h1 style="margin-bottom:0"><span>Resolume Arena</span> &mdash; Watch Folder Sync</h1>
+    <button class="danger" onclick="quitServer()" style="font-size:12px; padding:8px 14px;">Quit Server</button>
+  </div>
 
   <!-- Connection -->
   <div class="card">
@@ -353,6 +356,24 @@
       }, 2000);
     }
   }
+
+  // --- Quit server ---
+  async function quitServer() {
+    if (!confirm("This will shut down the watchfolder server. Continue?")) return;
+    try {
+      await fetch("/api/shutdown", { method: "POST" });
+    } catch (e) {
+      // Connection will drop — that's expected
+    }
+    document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#888;font-family:sans-serif;"><div style="text-align:center;"><h2 style="color:#fff;margin-bottom:12px;">Server stopped</h2><p>You can close this tab.</p></div></div>';
+  }
+
+  // --- Warn on tab close if server is running ---
+  window.addEventListener("beforeunload", (e) => {
+    e.preventDefault();
+    e.returnValue = "The watchfolder server is still running in the background. Use the Quit Server button to stop it first.";
+    return e.returnValue;
+  });
 
   // Start SSE on page load
   connectSSE();
