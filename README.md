@@ -1,5 +1,7 @@
 # Arena Watchfolder
 
+![Arena Watchfolder](banner.png)
+
 Sync a local folder of media files to a layer in [Resolume Arena](https://resolume.com/) — automatically.
 
 Drop videos and images into a folder, and they appear as clips in Arena. Add or remove files, and the layer updates to match. Use the **CLI** for scripting or the **Web UI** for a visual workflow.
