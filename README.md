@@ -18,8 +18,7 @@ Drop videos and images into a folder, and they appear as clips in Arena. Add or 
 ### Supported formats
 
 **Video:** `.mov` `.mp4` 
-**Image:** `.png` `.jpg` `.jpeg` `.gif` `.bmp` `.tiff` `.tif` `.tga`
-**Resolume:** `.dxv` 
+**Image:** `.png` `.jpg` `.jpeg` `.gif` `.bmp` `.tiff` `.tif`
 
 ## Requirements
 
