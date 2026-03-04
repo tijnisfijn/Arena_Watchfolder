@@ -20,21 +20,42 @@ Drop videos and images into a folder, and they appear as clips in Arena. Add or 
 **Video:** `.mov` `.mp4` 
 **Image:** `.png` `.jpg` `.jpeg` `.gif` `.bmp` `.tiff` `.tif`
 
-## Requirements
+## Quick Start
 
-- Python 3.7+
-- [Resolume Arena](https://resolume.com/) with the webserver enabled (Preferences > Webserver)
+> **Not familiar with Python or the terminal?** No worries — paste these instructions into any AI/LLM (like ChatGPT or Claude) and ask it to walk you through the setup step by step. It'll get you up and running in no time.
 
-## Installation
+### Requirements
+
+- **Python 3.7+** — [Download here](https://www.python.org/downloads/) if you don't have it
+- **Resolume Arena** with the webserver enabled (Preferences > Webserver)
+
+### Installation
+
+**1. Download the project**
 
 ```bash
 git clone https://github.com/tijnisfijn/Arena_Watchfolder.git
 cd Arena_Watchfolder
+```
+
+Or click the green **Code** button on GitHub and select **Download ZIP**, then extract it.
+
+**2. Set up the environment**
+
+```bash
 python3 -m venv .venv
 source .venv/bin/activate    # macOS/Linux
 # .venv\Scripts\activate     # Windows
 pip install -r requirements.txt
 ```
+
+**3. Run it**
+
+```bash
+python watchfolder.py --ui --ui-port 5050
+```
+
+Then open `http://127.0.0.1:5050` in your browser — that's it!
 
 ## Usage
 
