@@ -15,7 +15,7 @@ Here are some real-world examples:
 - **Effect presets across syncs** — Spend time dialing in Blur, Color Balance, speed, and cue points on your clips. Save a snapshot. Next time you sync that folder, restore the snapshot and every effect parameter is back exactly where you left it.
 - **Multi-layer setups** — Map different folders to different layers in a single set: backgrounds on layer 1, overlays on layer 2, text on layer 3. Sync them all at once.
 - **Quick A/B comparison** — Create two sets with slightly different media or folder structures, switch between them to compare how different clips look in your composition.
-- **Collaborative workflows** — Share a folder on Dropbox or a network drive, and everyone on the team can add media that syncs to Arena automatically.
+- **Remote media updates** — Use a synced folder (Dropbox, Google Drive, etc.) so team members can add or update media files remotely. The files sync to your local machine first, then Watch mode picks them up and loads them into Arena. Always run media from a local drive for reliable playback — never directly from a network share.
 
 ## Features
 
@@ -48,7 +48,21 @@ When you snapshot a layer, the following clip properties are captured and can be
 | **Transition** | Transition type and duration |
 | **Dashboard** | Dashboard knob assignments |
 
-> **Note:** Automation/keyframes and individual cue point markers (colored diamonds) are Arena UI features not exposed by the REST API — these cannot be saved or restored.
+### What is NOT saved or restored
+
+Some properties are outside the scope of Arena's REST/WebSocket API, or don't make sense to persist:
+
+| What | Why |
+|------|-----|
+| **Automation / keyframes** | Arena UI feature — not exposed through the API |
+| **Colored cue point markers** | The colored diamond markers in Arena's timeline are UI-only |
+| **Audio settings** | Clip audio (volume, pan) is not included in the snapshot |
+| **Live playback position** | Changes every frame — cue in/out points *are* saved, but the current playhead position is not |
+| **Layer-level settings** | Layer effects, layer blend mode, layer opacity, and layer transitions are not captured — snapshots are per-clip only |
+| **Clip name overrides** | Custom clip names set in Arena are not saved or restored |
+| **Composition settings** | Global composition properties (output resolution, FPS, etc.) are not affected |
+
+> **In short:** everything you set *on a clip* (effects, speed, cue points, blend mode, etc.) is saved. Everything set *on the layer* or *on the composition* is not.
 
 ### Supported formats
 
@@ -290,6 +304,10 @@ All contributions are welcome, whether you write code by hand or use AI-assisted
 **Files not syncing in watch mode?**
 - Some network drives don't support native file events — the app falls back to polling automatically
 - Large files may take a moment to become available after copying
+
+**Performance issues or dropped frames?**
+- Always run media from a **local drive** — never play videos directly from a network share or NAS. Network latency causes stuttering and dropped frames in Arena.
+- If collaborating remotely, use a synced folder (Dropbox, Google Drive, etc.) so files land on your local disk first. Watch mode will pick them up automatically.
 
 > **Still stuck?** Copy the error from the log and paste it into an AI assistant (ChatGPT, Claude, etc.) along with a brief description of what you were trying to do. It can usually pinpoint the problem and suggest a fix.
 

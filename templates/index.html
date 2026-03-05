@@ -315,7 +315,18 @@
 
     <h3>What gets saved</h3>
     <p>Effects (Blur, Color Balance, etc.) with all parameter values, Transform (position, scale, rotation), speed &amp; direction, cue points (in/out), play mode (autopilot), beat loop, opacity, resize mode, trigger style, transition, dashboard knobs, and more.</p>
-    <p><em>Note: Automation/keyframes and colored cue markers are Arena UI features not available through the API and cannot be saved.</em></p>
+
+    <h3>What is NOT saved</h3>
+    <ul>
+      <li><strong>Automation / keyframes</strong> &mdash; Arena UI feature, not available through the API</li>
+      <li><strong>Colored cue markers</strong> &mdash; the diamond markers in the timeline are UI-only</li>
+      <li><strong>Audio settings</strong> &mdash; clip audio (volume, pan) is not included</li>
+      <li><strong>Live playback position</strong> &mdash; the playhead moves every frame (cue in/out points <em>are</em> saved)</li>
+      <li><strong>Layer-level settings</strong> &mdash; layer effects, blend mode, opacity, and transitions are not captured (snapshots are per-clip only)</li>
+      <li><strong>Clip name overrides</strong> &mdash; custom names set in Arena are not saved</li>
+      <li><strong>Composition settings</strong> &mdash; output resolution, FPS, etc. are not affected</li>
+    </ul>
+    <p><em>In short: everything you set on a <strong>clip</strong> is saved. Everything set on the <strong>layer</strong> or <strong>composition</strong> is not.</em></p>
 
     <h3>Tips</h3>
     <ul>
@@ -323,6 +334,7 @@
       <li>Use the <strong>&#9998; edit</strong> button on a mapping to change its folder path or layer number.</li>
       <li>The <strong>Sync All</strong> button (top right of the mappings card) syncs every mapping in the current set at once.</li>
       <li>When clips return to a layer after re-syncing, you'll be asked whether to restore their previous settings or keep them fresh.</li>
+      <li><strong>Always use local folders</strong> for your media &mdash; never point mappings directly at a network share. If you collaborate remotely, use a synced folder (Dropbox, Google Drive) so files land on your local drive first.</li>
     </ul>
   </div>
 
