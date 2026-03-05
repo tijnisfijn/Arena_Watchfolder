@@ -56,7 +56,7 @@ Some properties are outside the scope of Arena's REST/WebSocket API, or don't ma
 
 | What | Why |
 |------|-----|
-| **Automation / keyframes** | Arena UI feature — not exposed through the API |
+| **Automation** | Arena UI feature — not exposed through the API |
 | **Colored cue point markers** | The colored diamond markers in Arena's timeline are UI-only |
 | **Live playback position** | Changes every frame — cue in/out points *are* saved, but the current playhead position is not |
 | **Layer-level settings** | Layer effects, layer blend mode, layer opacity, and layer transitions are not captured — snapshots are per-clip only |
