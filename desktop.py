@@ -145,9 +145,9 @@ def main():
     window = webview.create_window(
         "Arena Watchfolder",
         url,
-        width=780,
-        height=700,
-        min_size=(600, 500),
+        width=1200,
+        height=800,
+        min_size=(800, 500),
         js_api=js_api,
     )
 

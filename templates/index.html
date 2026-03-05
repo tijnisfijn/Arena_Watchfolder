@@ -12,7 +12,7 @@
     background: #1a1a2e;
     color: #e0e0e0;
     min-height: 100vh;
-    padding: 24px;
+    padding: 20px;
   }
 
   h1 { font-size: 20px; font-weight: 600; color: #fff; letter-spacing: 0.5px; }
@@ -22,8 +22,8 @@
     background: #16213e;
     border: 1px solid #2a2a4a;
     border-radius: 10px;
-    padding: 20px;
-    margin-bottom: 16px;
+    padding: 18px;
+    margin-bottom: 14px;
   }
 
   .card-title {
@@ -32,7 +32,7 @@
     text-transform: uppercase;
     letter-spacing: 1px;
     color: #8888aa;
-    margin-bottom: 14px;
+    margin-bottom: 12px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -99,21 +99,24 @@
   #log-output {
     background: #0f1729; border: 1px solid #2a2a4a; border-radius: 6px;
     padding: 12px; font-family: "SF Mono", "Fira Code", "Cascadia Code", Menlo, monospace;
-    font-size: 12px; line-height: 1.6; height: 220px; overflow-y: auto; color: #a0a0c0;
+    font-size: 12px; line-height: 1.6; height: 200px; overflow-y: auto; color: #a0a0c0;
   }
   #log-output .line { padding: 1px 0; }
   #log-output .time { color: #555; }
   #log-output .error { color: #e05555; }
 
-  .container { max-width: 720px; margin: 0 auto; }
-  .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+  .container { max-width: 1200px; margin: 0 auto; }
+  .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+
+  .two-col { display: grid; grid-template-columns: 340px 1fr; gap: 14px; align-items: start; }
+  @media (max-width: 800px) { .two-col { grid-template-columns: 1fr; } }
 
   /* --- Mapping cards --- */
   .mapping-card {
     background: #0f1729;
     border: 1px solid #2a2a4a;
     border-radius: 8px;
-    padding: 16px;
+    padding: 14px;
     margin-bottom: 10px;
     transition: border-color 0.2s;
   }
@@ -123,7 +126,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    margin-bottom: 12px;
+    margin-bottom: 10px;
   }
   .layer-badge {
     background: #7c83ff; color: #fff; font-size: 11px; font-weight: 700;
@@ -308,8 +311,8 @@
 
     <h3>Save &amp; Restore settings</h3>
     <ul>
-      <li><strong>Save Settings</strong> &mdash; Takes a snapshot of all clip settings on the layer: effects and their parameters, transform, speed, direction, cue points, blend modes, and more.</li>
-      <li><strong>Restore Settings</strong> &mdash; Applies the last saved snapshot back to the clips. Clips are matched by filename, so if a clip returns after being removed, its settings come back too.</li>
+      <li><strong>Save All Settings</strong> &mdash; Takes a snapshot of all clip settings across every mapping at once: effects and their parameters, transform, speed, direction, cue points, blend modes, and more. Saving all layers together keeps everything in sync.</li>
+      <li><strong>Restore Settings</strong> &mdash; Applies the last saved snapshot back to the clips on a specific layer. Clips are matched by filename, so if a clip returns after being removed, its settings come back too.</li>
     </ul>
     <p>Settings are also saved/restored automatically when switching sets.</p>
 
@@ -339,6 +342,10 @@
       <li><strong>Always use local folders</strong> for your media &mdash; never point mappings directly at a network share. If you collaborate remotely, use a synced folder (Dropbox, Google Drive) so files land on your local drive first.</li>
     </ul>
   </div>
+
+  <div class="two-col">
+  <!-- ═══ LEFT COLUMN ═══ -->
+  <div class="col-left">
 
   <!-- Connection -->
   <div class="card">
@@ -441,6 +448,22 @@
     </div>
   </div>
 
+  </div><!-- /col-left -->
+
+  <!-- ═══ RIGHT COLUMN ═══ -->
+  <div class="col-right">
+
+  <!-- Save All Settings -->
+  <div class="card" id="card-snapshot-all" style="display:none;">
+    <div class="card-title">
+      <span>Save &amp; Restore</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <button onclick="snapshotAll(this)" id="btn-snapshot-all" title="Save a snapshot of all clip settings across every mapping — effects, transform, speed, cue points, blend modes">Save All Settings</button>
+      <span class="help-text" style="margin:0;">Saves effects, transform, speed, cue points, blend modes and more for all clips across all mappings at once.</span>
+    </div>
+  </div>
+
   <!-- Sets + Mappings -->
   <div class="card">
     <div class="card-title">
@@ -497,6 +520,9 @@
     <div class="card-title">Log</div>
     <div id="log-output"></div>
   </div>
+
+  </div><!-- /col-right -->
+  </div><!-- /two-col -->
 </div>
 
 <!-- Folder browser modal -->
@@ -932,14 +958,17 @@
     const list = document.getElementById("mappings-list");
     const activeSet = state.sets.find(s => s.id === state.active_set_id);
     const syncAllBtn = document.getElementById("btn-sync-all");
+    const snapCard = document.getElementById("card-snapshot-all");
 
     if (!activeSet || !activeSet.mappings.length) {
       list.innerHTML = '<div class="empty-state">No folder mappings yet.<br>Click "+ Add Folder Mapping" below to map a media folder to an Arena layer.</div>';
       syncAllBtn.style.display = "none";
+      snapCard.style.display = "none";
       return;
     }
 
     syncAllBtn.style.display = connected ? "" : "none";
+    snapCard.style.display = connected ? "" : "none";
     list.innerHTML = "";
 
     for (const m of activeSet.mappings) {
@@ -971,7 +1000,6 @@
             ? `<button class="small success" onclick="startWatch('${m.id}')" ${!connected ? 'disabled' : ''} title="Continuously monitor this folder and auto-sync when files change">Start Watch</button>`
             : `<button class="small danger" onclick="stopWatch('${m.id}')" title="Stop monitoring this folder">Stop Watch</button>`
           }
-          <button class="small secondary" onclick="snapshotMapping('${m.id}', this)" ${!connected ? 'disabled' : ''} title="Save a snapshot of all clip settings on this layer (effects, transform, speed, cue points, blend modes)">Save Settings</button>
           <button class="small secondary" onclick="restoreMapping('${m.id}')" ${!connected ? 'disabled' : ''} title="Restore clip settings from the last snapshot — clips are matched by filename">Restore Settings</button>
         </div>
       `;
@@ -1081,12 +1109,16 @@
     } catch (e) {}
   }
 
-  async function snapshotMapping(id, btn) {
+  async function snapshotAll(btn) {
     if (btn) { btn.disabled = true; btn.textContent = "Saving..."; }
     try {
-      await fetch(`/api/mappings/${id}/snapshot`, { method: "POST" });
+      const r = await fetch("/api/snapshot", { method: "POST" });
+      const data = await r.json();
+      if (data.ok) {
+        log(`Snapshot saved: ${data.clips} clips across ${data.layers} layer(s)`);
+      }
     } catch (e) {}
-    if (btn) { btn.disabled = false; btn.textContent = "Save Settings"; }
+    if (btn) { btn.disabled = false; btn.textContent = "Save All Settings"; }
   }
 
   async function restoreMapping(id) {

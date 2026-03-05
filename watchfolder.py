@@ -1766,6 +1766,42 @@ def create_web_app(desktop_mode=False):
         log(f"  Stopping watch on layer {m['layer']}...")
         return jsonify({"ok": True})
 
+    @app.route("/api/snapshot", methods=["POST"])
+    def snapshot_all():
+        """Manually snapshot ALL mappings at once to keep everything in sync."""
+        s = _active_set()
+        if not s:
+            return jsonify({"ok": False, "error": "No active set"}), 400
+        if not _state["api"]:
+            return jsonify({"ok": False, "error": "Not connected to Arena"}), 400
+        sf = _state["options"].get("snapshot_folder", "")
+        comp = _state.get("locked_composition", "")
+        total_clips = 0
+        layers_saved = 0
+        errors = []
+        for m in s.get("mappings", []):
+            try:
+                layer_key = str(m["layer"])
+                old_snap = s["snapshots"].get(layer_key)
+                new_snap = snapshot_layer(_state["api"], m["layer"])
+                s["snapshots"][layer_key] = merge_snapshots(old_snap, new_snap)
+                clip_count = sum(1 for e in new_snap if e["filename"])
+                total_clips += clip_count
+                layers_saved += 1
+                log(f"  Layer {m['layer']}: snapshot saved ({clip_count} clips)")
+                if sf:
+                    save_combined_snapshot(sf, m["layer"], m["folder"],
+                                          s["snapshots"][layer_key], comp)
+            except Exception as e:
+                errors.append(f"Layer {m['layer']}: {e}")
+                log(f"  ERROR snapshotting layer {m['layer']}: {e}")
+        _save()
+        if errors:
+            return jsonify({"ok": True, "clips": total_clips,
+                            "layers": layers_saved, "errors": errors})
+        return jsonify({"ok": True, "clips": total_clips,
+                        "layers": layers_saved})
+
     @app.route("/api/mappings/<mapping_id>/snapshot", methods=["POST"])
     def snapshot_mapping(mapping_id):
         """Manually snapshot a single layer."""
