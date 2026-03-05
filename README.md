@@ -66,8 +66,8 @@ Some properties are outside the scope of Arena's REST/WebSocket API, or don't ma
 
 ### Supported formats
 
-**Video:** `.mov` `.mp4` `.avi` `.wmv` `.mkv` `.webm` `.m4v` `.flv` `.mpg` `.mpeg` `.3gp` `.ogv` `.ts` `.mxf` `.dxv` `.hap`
-**Image:** `.png` `.jpg` `.jpeg` `.gif` `.bmp` `.tiff` `.tif` `.tga` `.webp` `.exr` `.hdr` `.psd`
+**Video**
+**Image** 
 
 ## Quick Start
 
