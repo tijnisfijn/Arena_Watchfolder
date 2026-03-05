@@ -286,6 +286,16 @@ The core sync logic should work cross-platform since it's all Python + REST API 
 
 All contributions are welcome, whether you write code by hand or use AI-assisted development.
 
+## Shutting down properly
+
+**Always quit the app when you're done.** If you leave it running in the background — especially in watch mode — it will continue syncing files to Arena. This can cause problems if you open a different composition later, because the app may still be pushing clips to the layers it was mapped to.
+
+- **Web UI:** click **Quit Server** in the top-right corner, or press `Ctrl+C` in the terminal
+- **Desktop app:** click the **Quit** button in the UI (macOS), or use the system tray icon to quit (Windows/Linux)
+- **CLI:** press `Ctrl+C` in the terminal
+
+> **If the app was left running by accident**, you can stop it by closing the terminal window it's running in, or by finding and killing the Python process.
+
 ## Troubleshooting
 
 **Can't connect to Arena?**
