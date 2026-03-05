@@ -40,4 +40,7 @@ def _defaults() -> dict:
             }
         ],
         "active_set_id": "1",
+        "options": {
+            "rename_layers": False,
+        },
     }

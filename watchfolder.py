@@ -292,6 +292,15 @@ class ArenaAPI:
         except Exception:
             return f"Layer {layer}"
 
+    def set_layer_name(self, layer: int, name: str):
+        """Rename a layer in Arena."""
+        r = requests.put(
+            f"{self.base}/composition/layers/{layer}",
+            json={"name": {"value": name}},
+            timeout=10,
+        )
+        r.raise_for_status()
+
     def get_clip_data(self, layer: int, clip: int) -> dict:
         """Get full clip data for a specific slot."""
         r = requests.get(
@@ -422,6 +431,17 @@ def restore_snapshot(api: ArenaAPI, layer: int, snapshot: list[dict],
 # Core sync logic — SMART SYNC (incremental, preserves effects)
 # ---------------------------------------------------------------------------
 
+def rename_layer_to_folder(api: ArenaAPI, folder: str, layer: int):
+    """Rename an Arena layer to match the mapped folder name."""
+    folder_name = Path(folder).name
+    if folder_name:
+        try:
+            api.set_layer_name(layer, folder_name)
+            log(f"  Renamed layer {layer} to '{folder_name}'")
+        except Exception as exc:
+            log(f"  Warning: could not rename layer {layer}: {exc}")
+
+
 def sync_folder_to_layer(api: ArenaAPI, folder: str, layer: int,
                          dry_run: bool = False, force_full: bool = False,
                          snapshot: list[dict] | None = None) -> dict:
@@ -540,11 +560,13 @@ def sync_folder_to_layer(api: ArenaAPI, folder: str, layer: int,
 # ---------------------------------------------------------------------------
 
 def watch_folder(api: ArenaAPI, folder: str, layer: int, stop_flag=None,
-                 snapshot_getter=None, snapshot_saver=None):
+                 snapshot_getter=None, snapshot_saver=None,
+                 rename_layer=False):
     """Continuously monitor the folder and re-sync when changes are detected.
 
     snapshot_getter: optional callable returning the current snapshot for auto-restore.
     snapshot_saver:  optional callable(snap) to persist a new snapshot after sync.
+    rename_layer:    if True, rename the layer to the folder name after each sync.
     """
     log(f"\n  WATCH MODE -- monitoring '{folder}' every {POLL_INTERVAL}s")
     if not stop_flag:
@@ -571,6 +593,10 @@ def watch_folder(api: ArenaAPI, folder: str, layer: int, stop_flag=None,
         # 2) Sync (with snapshot for returning-clip detection)
         snap = snapshot_getter() if snapshot_getter else None
         result = sync_folder_to_layer(api, folder, layer, snapshot=snap)
+
+        # Rename layer to folder name if option is enabled
+        if rename_layer:
+            rename_layer_to_folder(api, folder, layer)
 
         # 3) Auto-restore returning clips (only the ones that were re-added)
         if result.get("returning") and snap:
@@ -683,6 +709,7 @@ def create_web_app(desktop_mode=False):
         "active_set_id": saved.get("active_set_id", "1"),
         "next_id": 1,
         "desktop_mode": desktop_mode,
+        "options": saved.get("options", {"rename_layers": False}),
     }
 
     # Restore sets from config
@@ -745,6 +772,7 @@ def create_web_app(desktop_mode=False):
             "host": _state["host"],
             "port": _state["port"],
             "active_set_id": _state["active_set_id"],
+            "options": _state["options"],
             "sets": [
                 {
                     "id": s["id"],
@@ -800,6 +828,17 @@ def create_web_app(desktop_mode=False):
             "dirs": dirs,
             "media_count": media_count,
         })
+
+    @app.route("/api/options", methods=["GET"])
+    def get_options():
+        return jsonify(_state["options"])
+
+    @app.route("/api/options", methods=["PUT"])
+    def set_options():
+        data = flask_request.get_json(silent=True) or {}
+        _state["options"].update(data)
+        _save()
+        return jsonify({"ok": True})
 
     @app.route("/api/connect", methods=["POST"])
     def connect():
@@ -906,6 +945,10 @@ def create_web_app(desktop_mode=False):
                     log(f"  Syncing layer {m['layer']} <- {m['folder']}")
                     sync_folder_to_layer(_state["api"], m["folder"], m["layer"])
 
+                    # Rename layer to folder name if option is enabled
+                    if _state["options"].get("rename_layers"):
+                        rename_layer_to_folder(_state["api"], m["folder"], m["layer"])
+
                     # Restore snapshot if available
                     layer_snap = new_set["snapshots"].get(str(m["layer"]))
                     if layer_snap:
@@ -1002,6 +1045,10 @@ def create_web_app(desktop_mode=False):
                 force_full=force, snapshot=layer_snap,
             )
 
+            # Rename layer to folder name if option is enabled
+            if _state["options"].get("rename_layers"):
+                rename_layer_to_folder(_state["api"], m["folder"], m["layer"])
+
             returning = result.get("returning", [])
 
             if returning:
@@ -1055,6 +1102,7 @@ def create_web_app(desktop_mode=False):
                     stop_flag=lambda: not m["watching"],
                     snapshot_getter=lambda: s["snapshots"].get(layer_key),
                     snapshot_saver=_save_snap,
+                    rename_layer=_state["options"].get("rename_layers", False),
                 )
             except Exception as e:
                 log(f"  Watch error on layer {m['layer']}: {e}")

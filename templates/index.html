@@ -360,6 +360,17 @@
     </div>
   </div>
 
+  <!-- Options -->
+  <div class="card">
+    <div class="card-title">Options</div>
+    <div class="row" style="align-items:center; gap:8px;">
+      <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:13px;" title="When enabled, layers in Arena are automatically renamed to match their mapped folder name on every sync">
+        <input type="checkbox" id="opt-rename-layers" onchange="toggleOption('rename_layers', this.checked)">
+        Rename layers to folder name
+      </label>
+    </div>
+  </div>
+
   <!-- Sets + Mappings -->
   <div class="card">
     <div class="card-title">
@@ -504,6 +515,22 @@
       updateConnectionUI();
       renderSets();
       renderMappings();
+    } catch (e) {}
+    // Load options
+    try {
+      const res = await fetch("/api/options");
+      const opts = await res.json();
+      document.getElementById("opt-rename-layers").checked = !!opts.rename_layers;
+    } catch (e) {}
+  }
+
+  async function toggleOption(key, value) {
+    try {
+      await fetch("/api/options", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [key]: value }),
+      });
     } catch (e) {}
   }
 
