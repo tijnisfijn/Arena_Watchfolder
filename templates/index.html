@@ -133,11 +133,24 @@
     font-size: 13px; color: #bbb; overflow: hidden; text-overflow: ellipsis;
     white-space: nowrap; flex: 1; font-family: "SF Mono", Menlo, monospace;
   }
+  .edit-btn {
+    background: none; border: none; color: #555; cursor: pointer;
+    font-size: 13px; padding: 0 4px; line-height: 1; transition: color 0.2s;
+  }
+  .edit-btn:hover { color: #7c83ff; }
   .remove-btn {
     background: none; border: none; color: #555; cursor: pointer;
     font-size: 18px; padding: 0 4px; line-height: 1; transition: color 0.2s;
   }
   .remove-btn:hover { color: #e05555; }
+
+  .mapping-edit-row {
+    display: flex; gap: 6px; align-items: center; padding-top: 8px;
+  }
+  .mapping-edit-row input {
+    flex: 1; font-size: 13px; padding: 6px 8px;
+    font-family: "SF Mono", Menlo, monospace;
+  }
 
   .mapping-actions {
     display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
@@ -234,13 +247,83 @@
 
   /* --- Tooltip-like help --- */
   .help-text { font-size: 11px; color: #555; margin-top: 6px; }
+
+  /* --- Help panel --- */
+  .help-toggle {
+    background: none; border: 1px solid #2a2a4a; color: #888; border-radius: 50%;
+    width: 28px; height: 28px; font-size: 14px; font-weight: 700;
+    cursor: pointer; transition: all 0.2s; padding: 0; display: flex;
+    align-items: center; justify-content: center;
+  }
+  .help-toggle:hover { border-color: #7c83ff; color: #7c83ff; background: rgba(124,131,255,0.08); }
+
+  .help-panel {
+    display: none; background: #0f1729; border: 1px solid #2a2a4a; border-radius: 10px;
+    padding: 20px 24px; margin-bottom: 16px; line-height: 1.7; font-size: 13px; color: #bbb;
+  }
+  .help-panel.active { display: block; }
+  .help-panel h2 { font-size: 16px; color: #fff; margin-bottom: 14px; font-weight: 600; }
+  .help-panel h3 { font-size: 13px; color: #7c83ff; margin: 16px 0 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  .help-panel p { margin-bottom: 8px; }
+  .help-panel ul { margin: 0 0 8px 18px; }
+  .help-panel li { margin-bottom: 4px; }
+  .help-panel code {
+    background: #1a1a2e; padding: 2px 6px; border-radius: 3px;
+    font-family: "SF Mono", Menlo, monospace; font-size: 12px; color: #7c83ff;
+  }
+  .help-panel .kbd {
+    background: #2a2a4a; padding: 2px 7px; border-radius: 4px;
+    font-family: "SF Mono", Menlo, monospace; font-size: 11px; color: #ccc;
+    border: 1px solid #3a3a5a;
+  }
 </style>
 </head>
 <body>
 <div class="container">
   <div class="header-bar">
     <h1><span>Resolume Arena</span> &mdash; Watch Folder Sync</h1>
-    <button class="danger small" id="btn-quit" onclick="quitServer()">Quit Server</button>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <button class="help-toggle" onclick="toggleHelp()" title="Show help &amp; tips">?</button>
+      <button class="danger small" id="btn-quit" onclick="quitServer()">Quit Server</button>
+    </div>
+  </div>
+
+  <!-- Help panel -->
+  <div class="help-panel" id="help-panel">
+    <h2>How to use Arena Watchfolder</h2>
+    <p>This app syncs local folders of media files to layers in Resolume Arena. Drop videos and images into a folder, and they appear as clips in Arena.</p>
+
+    <h3>Getting started</h3>
+    <ol>
+      <li><strong>Connect</strong> &mdash; Make sure Arena's webserver is enabled (Preferences &gt; Webserver), then click <strong>Connect</strong>. The default host/port works if Arena is on the same machine.</li>
+      <li><strong>Add a mapping</strong> &mdash; Click <strong>+ Add Folder Mapping</strong>, pick a folder with your media files and choose which Arena layer to sync them to.</li>
+      <li><strong>Sync</strong> &mdash; Click <strong>Sync Now</strong> to load the folder's files into Arena. Only new/removed files are touched &mdash; existing clips keep all their effects and settings.</li>
+    </ol>
+
+    <h3>Sets &amp; profiles</h3>
+    <p>A <strong>set</strong> is a named profile (e.g. "Thursday Night", "Friday Night") with its own folder-to-layer mappings. When you switch sets, the current clip settings are saved automatically, and the new set's settings are restored. Great for different shows or events.</p>
+
+    <h3>Watch mode</h3>
+    <p>Click <strong>Start Watch</strong> on a mapping to continuously monitor the folder. When you add or remove files, the layer updates automatically. The orange border and pulsing dot indicate active watching.</p>
+
+    <h3>Save &amp; Restore settings</h3>
+    <ul>
+      <li><strong>Save Settings</strong> &mdash; Takes a snapshot of all clip settings on the layer: effects and their parameters, transform, speed, direction, cue points, blend modes, and more.</li>
+      <li><strong>Restore Settings</strong> &mdash; Applies the last saved snapshot back to the clips. Clips are matched by filename, so if a clip returns after being removed, its settings come back too.</li>
+    </ul>
+    <p>Settings are also saved/restored automatically when switching sets.</p>
+
+    <h3>What gets saved</h3>
+    <p>Effects (Blur, Color Balance, etc.) with all parameter values, Transform (position, scale, rotation), speed &amp; direction, cue points (in/out), play mode (autopilot), beat loop, opacity, resize mode, trigger style, transition, dashboard knobs, and more.</p>
+    <p><em>Note: Automation/keyframes and colored cue markers are Arena UI features not available through the API and cannot be saved.</em></p>
+
+    <h3>Tips</h3>
+    <ul>
+      <li>Files sync <strong>alphabetically</strong> into clip slots &mdash; rename files with number prefixes (01_, 02_, ...) to control the order.</li>
+      <li>Use the <strong>&#9998; edit</strong> button on a mapping to change its folder path or layer number.</li>
+      <li>The <strong>Sync All</strong> button (top right of the mappings card) syncs every mapping in the current set at once.</li>
+      <li>When clips return to a layer after re-syncing, you'll be asked whether to restore their previous settings or keep them fresh.</li>
+    </ul>
   </div>
 
   <!-- Connection -->
@@ -255,7 +338,7 @@
         <label for="arena-port">Port</label>
         <input type="number" id="arena-port" value="8080" placeholder="8080">
       </div>
-      <button id="btn-connect" onclick="connectArena()">Connect</button>
+      <button id="btn-connect" onclick="connectArena()" title="Connect to Arena's webserver (must be enabled in Arena Preferences &gt; Webserver)">Connect</button>
     </div>
     <div class="status-badge">
       <span class="status-dot disconnected" id="conn-dot"></span>
@@ -267,15 +350,15 @@
   <div class="card">
     <div class="card-title">
       <span>Sets &amp; Mappings</span>
-      <button class="tiny secondary" onclick="syncAllMappings()" id="btn-sync-all" style="display:none">Sync All</button>
+      <button class="tiny secondary" onclick="syncAllMappings()" id="btn-sync-all" style="display:none" title="Sync all folder mappings in this set at once">Sync All</button>
     </div>
 
     <!-- Set selector -->
     <div class="set-row">
-      <select id="set-select" onchange="onSetChange()"></select>
-      <button class="tiny secondary" onclick="renameSet()" title="Rename set">Rename</button>
-      <button class="tiny" onclick="createSet()">+ New</button>
-      <button class="tiny danger" onclick="deleteSet()">Delete</button>
+      <select id="set-select" onchange="onSetChange()" title="Switch between sets — each set has its own folder mappings and saved clip settings"></select>
+      <button class="tiny secondary" onclick="renameSet()" title="Rename this set">Rename</button>
+      <button class="tiny" onclick="createSet()" title="Create a new set with its own folder mappings">+ New</button>
+      <button class="tiny danger" onclick="deleteSet()" title="Delete this set and all its mappings">Delete</button>
     </div>
 
     <!-- Rename inline -->
@@ -290,7 +373,7 @@
 
     <!-- Add mapping -->
     <div style="margin-top: 10px;">
-      <button class="small secondary" id="btn-add-mapping" onclick="showAddMapping()">+ Add Folder Mapping</button>
+      <button class="small secondary" id="btn-add-mapping" onclick="showAddMapping()" title="Map a folder of media files to an Arena layer">+ Add Folder Mapping</button>
     </div>
     <div class="add-form" id="add-mapping-form">
       <div class="form-row">
@@ -355,8 +438,8 @@
       <div id="returning-clips-list" style="max-height:200px;overflow-y:auto;margin-bottom:16px;"></div>
     </div>
     <div class="modal-footer">
-      <button class="small" onclick="keepFreshReturning()" style="background:#333;color:#ccc;">Keep Fresh</button>
-      <button class="small" onclick="restoreReturningClips()">Restore Settings</button>
+      <button class="small" onclick="keepFreshReturning()" style="background:#333;color:#ccc;" title="Keep the default settings — don't restore previous effects and tweaks">Keep Fresh</button>
+      <button class="small" onclick="restoreReturningClips()" title="Restore the previously saved effects, speed, cue points and other settings for these clips">Restore Settings</button>
     </div>
   </div>
 </div>
@@ -544,16 +627,25 @@
           <span class="layer-badge">Layer ${m.layer}</span>
           <span class="folder-path" title="${esc(m.folder)}">${esc(folderDisplay)}</span>
           ${w ? '<span class="watch-indicator"><span class="status-dot watching"></span>Watching</span>' : ''}
-          <button class="remove-btn" onclick="removeMapping('${m.id}')" title="Remove">&times;</button>
+          <button class="edit-btn" onclick="editMapping('${m.id}')" title="Edit folder path and layer number">&#9998;</button>
+          <button class="remove-btn" onclick="removeMapping('${m.id}')" title="Remove this mapping">&times;</button>
+        </div>
+        <div class="mapping-edit-row" id="edit-${m.id}" style="display:none;">
+          <input type="text" id="edit-folder-${m.id}" value="${esc(m.folder)}" placeholder="/path/to/media">
+          <button class="small secondary" onclick="openBrowser('edit-folder-${m.id}')" title="Browse for a folder">Browse</button>
+          <label style="color:#888;font-size:12px;white-space:nowrap;">Layer</label>
+          <input type="number" id="edit-layer-${m.id}" value="${m.layer}" min="1" style="width:54px;flex:none;" title="Arena layer number (1-based)">
+          <button class="small" onclick="saveMapping('${m.id}')" title="Save changes">Save</button>
+          <button class="small secondary" onclick="cancelEditMapping('${m.id}')" title="Discard changes">Cancel</button>
         </div>
         <div class="mapping-actions">
-          <button class="small" onclick="syncMapping('${m.id}', this)" ${!connected ? 'disabled' : ''}>Sync Now</button>
+          <button class="small" onclick="syncMapping('${m.id}', this)" ${!connected ? 'disabled' : ''} title="Sync this folder to its Arena layer — adds new files, removes deleted ones, keeps existing clips untouched">Sync Now</button>
           ${!w
-            ? `<button class="small success" onclick="startWatch('${m.id}')" ${!connected ? 'disabled' : ''}>Start Watch</button>`
-            : `<button class="small danger" onclick="stopWatch('${m.id}')">Stop Watch</button>`
+            ? `<button class="small success" onclick="startWatch('${m.id}')" ${!connected ? 'disabled' : ''} title="Continuously monitor this folder and auto-sync when files change">Start Watch</button>`
+            : `<button class="small danger" onclick="stopWatch('${m.id}')" title="Stop monitoring this folder">Stop Watch</button>`
           }
-          <button class="small secondary" onclick="snapshotMapping('${m.id}', this)" ${!connected ? 'disabled' : ''} title="Save all clip settings (effects, speed, etc.)">Save Settings</button>
-          <button class="small secondary" onclick="restoreMapping('${m.id}')" ${!connected ? 'disabled' : ''} title="Restore clip settings from last save">Restore Settings</button>
+          <button class="small secondary" onclick="snapshotMapping('${m.id}', this)" ${!connected ? 'disabled' : ''} title="Save a snapshot of all clip settings on this layer (effects, transform, speed, cue points, blend modes)">Save Settings</button>
+          <button class="small secondary" onclick="restoreMapping('${m.id}')" ${!connected ? 'disabled' : ''} title="Restore clip settings from the last snapshot — clips are matched by filename">Restore Settings</button>
         </div>
       `;
       list.appendChild(card);
@@ -592,6 +684,34 @@
     if (!confirm("Remove this folder mapping?")) return;
     try {
       await fetch(`/api/mappings/${id}`, { method: "DELETE" });
+      await loadState();
+    } catch (e) {}
+  }
+
+  function editMapping(id) {
+    const row = document.getElementById(`edit-${id}`);
+    if (row) row.style.display = "flex";
+  }
+
+  function cancelEditMapping(id) {
+    const row = document.getElementById(`edit-${id}`);
+    if (row) row.style.display = "none";
+  }
+
+  async function saveMapping(id) {
+    const folderInput = document.getElementById(`edit-folder-${id}`);
+    const layerInput = document.getElementById(`edit-layer-${id}`);
+    if (!folderInput) return;
+    const folder = folderInput.value.trim();
+    const layer = parseInt(layerInput.value);
+    if (!folder) { alert("Enter a folder path."); return; }
+    if (!layer || layer < 1) { alert("Enter a valid layer number."); return; }
+    try {
+      await fetch(`/api/mappings/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ folder, layer }),
+      });
       await loadState();
     } catch (e) {}
   }
@@ -753,6 +873,11 @@
       await fetch(`/api/mappings/${returningMappingId}/keep-fresh`, { method: "POST" });
     } catch (e) {}
     closeReturningModal();
+  }
+
+  // ─── Help ───
+  function toggleHelp() {
+    document.getElementById("help-panel").classList.toggle("active");
   }
 
   // ─── Quit ───
