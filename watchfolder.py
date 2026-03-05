@@ -198,13 +198,45 @@ class ArenaAPI:
         return len(columns) if isinstance(columns, list) else 0
 
     def grow_columns(self, needed: int):
-        """Ensure the composition has at least *needed* columns."""
-        r = requests.post(
-            f"{self.base}/composition/grow-to",
-            json={"column_count": needed},
-            timeout=10,
-        )
-        r.raise_for_status()
+        """Ensure the composition has at least *needed* columns.
+
+        Tries the grow-to endpoint first. If that fails, falls back to
+        adding individual columns via the column create endpoint.
+        """
+        current = self.get_column_count()
+        if current >= needed:
+            return
+
+        # Try grow-to endpoint
+        try:
+            r = requests.post(
+                f"{self.base}/composition/grow-to",
+                json={"column_count": needed},
+                timeout=10,
+            )
+            r.raise_for_status()
+        except Exception:
+            pass  # fall through to verification
+
+        # Verify it worked
+        after = self.get_column_count()
+        if after >= needed:
+            return
+
+        # Fallback: add columns one at a time
+        for _ in range(needed - after):
+            try:
+                r = requests.post(
+                    f"{self.base}/composition/columns",
+                    timeout=10,
+                )
+                r.raise_for_status()
+            except Exception:
+                break  # can't add more
+
+        final = self.get_column_count()
+        if final < needed:
+            log(f"  WARNING: Could only grow to {final} columns (needed {needed})")
 
     def get_layer_clips(self, layer: int) -> list[dict]:
         """Get all clips on a layer with their slot index, file path, and full data.
@@ -510,6 +542,11 @@ def sync_folder_to_layer(api: ArenaAPI, folder: str, layer: int,
 
     log(f"  Smart sync: +{len(to_add)} new, -{len(to_remove)} removed, {len(unchanged)} unchanged")
 
+    # Log unchanged clips and their slot positions for debugging
+    if unchanged:
+        unchanged_slots = sorted([arena_by_path[p] for p in unchanged])
+        log(f"  Unchanged clip slots: {unchanged_slots}")
+
     # Clear removed clips
     for path in to_remove:
         slot = arena_by_path[path]
@@ -521,6 +558,21 @@ def sync_folder_to_layer(api: ArenaAPI, folder: str, layer: int,
     empty_slots = sorted([c["slot"] for c in arena_clips if c["path"] is None])
     available_slots = sorted(set(freed_slots + empty_slots))
 
+    log(f"  Slot info: {len(arena_clips)} total, freed={freed_slots}, empty={empty_slots}, available={available_slots}")
+
+    # If we don't have enough available slots, ensure we have enough columns
+    if len(to_add) > len(available_slots):
+        needed_extra = len(to_add) - len(available_slots)
+        total_needed = len(arena_clips) + needed_extra
+        log(f"  Need {needed_extra} more slot(s), ensuring {total_needed} columns")
+        api.grow_columns(total_needed)
+        # Re-read to get updated slot count
+        arena_clips_after = api.get_layer_clips(layer)
+        new_empty = sorted([c["slot"] for c in arena_clips_after
+                           if c["path"] is None and c["slot"] not in available_slots])
+        available_slots = sorted(set(available_slots + new_empty))
+        log(f"  After grow: {len(arena_clips_after)} slots, available now={available_slots}")
+
     # Assign new files to available slots
     new_files_sorted = sorted(to_add)
     load_pairs = []
@@ -529,11 +581,38 @@ def sync_folder_to_layer(api: ArenaAPI, folder: str, layer: int,
             slot = available_slots[i]
         else:
             slot = len(arena_clips) + 1 + (i - len(available_slots))
+            log(f"  WARNING: Using overflow slot {slot} (may not exist)")
         log(f"    + Loading slot {slot}: {Path(fpath).name}")
         load_pairs.append((slot, fpath))
 
     if load_pairs:
-        api.batch_open_clips(layer, load_pairs)
+        try:
+            api.batch_open_clips(layer, load_pairs)
+        except Exception as exc:
+            log(f"  WARNING: Batch load failed ({exc}), trying individual loads...")
+            for slot, fpath in load_pairs:
+                try:
+                    api.open_clip(layer, slot, fpath)
+                except Exception as exc2:
+                    log(f"    ERROR: Could not load slot {slot}: {exc2}")
+
+    # Verify clips were actually loaded
+    if load_pairs:
+        time.sleep(0.5)  # give Arena a moment to process
+        verify_clips = api.get_layer_clips(layer)
+        loaded_slots = {c["slot"] for c in verify_clips if c["path"] is not None}
+        expected_slots = {slot for slot, _ in load_pairs}
+        missing = expected_slots - loaded_slots
+        if missing:
+            log(f"  WARNING: {len(missing)} clip(s) failed to load in slots: {sorted(missing)}")
+            # Try loading missing clips individually
+            for slot, fpath in load_pairs:
+                if slot in missing:
+                    log(f"    Retrying slot {slot}: {Path(fpath).name}")
+                    try:
+                        api.open_clip(layer, slot, fpath)
+                    except Exception as exc:
+                        log(f"    ERROR: Retry failed for slot {slot}: {exc}")
 
     # Detect returning clips (new files that have saved snapshot settings)
     returning = []
@@ -1237,6 +1316,11 @@ def create_web_app(desktop_mode=False):
             os._exit(0)
         threading.Thread(target=do_shutdown, daemon=True).start()
         return jsonify({"ok": True})
+
+    @app.route("/api/logs/history")
+    def logs_history():
+        """Return buffered log messages as JSON (for debugging)."""
+        return jsonify(log_manager._messages)
 
     @app.route("/api/logs")
     def logs_stream():
