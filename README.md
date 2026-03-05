@@ -12,7 +12,6 @@ Here are some real-world examples:
 
 - **Gig prep made easy** — Organize your media into folders per event ("Thursday Night", "Friday Night"), map each folder to a layer in Arena, and switch between them with one click. All your clip tweaks come back automatically.
 - **Live media updates** — Drop a new video into your mapped folder mid-show and it appears in Arena within seconds (watch mode). Remove a file and the clip disappears from the layer.
-- **Effect presets across syncs** — Spend time dialing in Blur, Color Balance, speed, and cue points on your clips. Save a snapshot. Next time you sync that folder, restore the snapshot and every effect parameter is back exactly where you left it.
 - **Multi-layer setups** — Map different folders to different layers in a single set: backgrounds on layer 1, overlays on layer 2, text on layer 3. Sync them all at once.
 - **Quick A/B comparison** — Create two sets with slightly different media or folder structures, switch between them to compare how different clips look in your composition.
 - **Remote media updates** — Use a synced folder (Dropbox, Google Drive, etc.) so team members can add or update media files remotely. The files sync to your local machine first, then Watch mode picks them up and loads them into Arena. Always run media from a local drive for reliable playback — never directly from a network share.
