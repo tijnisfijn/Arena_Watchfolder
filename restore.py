@@ -364,13 +364,27 @@ def _restorable_sections(clip_data: dict,
         if vid_props:
             sections.append({"video": vid_props})
 
-    # 4) simple top-level fields
+    # 4) audio (volume, pan)
+    audio = clip_data.get("audio")
+    if audio:
+        audio_props = {}
+        for key in ("volume", "pan"):
+            if audio.get(key) is not None:
+                audio_props[key] = _strip_nulls(audio[key])
+        if audio_props:
+            sections.append({"audio": audio_props})
+
+    # 5) clip name
+    if clip_data.get("name") is not None:
+        sections.append({"name": _strip_nulls(clip_data["name"])})
+
+    # 6) simple top-level fields
     for key in ("transporttype", "target", "triggerstyle", "ignorecolumntrigger",
                 "faderstart", "beatsnap", "dashboard"):
         if clip_data.get(key) is not None:
             sections.append({key: _strip_nulls(clip_data[key])})
 
-    # 5) transition
+    # 7) transition
     if clip_data.get("transition"):
         cleaned = _strip_nulls(clip_data["transition"])
         if cleaned:

@@ -44,9 +44,11 @@ When you snapshot a layer, the following clip properties are captured and can be
 | **Transport** | Speed, direction, play mode (autopilot), beat loop, duration |
 | **Cue points** | In/out points on the timeline |
 | **Video** | Opacity, resize mode, color channels (R/G/B/A) |
+| **Audio** | Volume, pan |
 | **Blend & trigger** | Trigger style, transport type, target, fader start, beat snap |
 | **Transition** | Transition type and duration |
 | **Dashboard** | Dashboard knob assignments |
+| **Clip name** | Custom clip name set in Arena |
 
 ### What is NOT saved or restored
 
@@ -56,10 +58,8 @@ Some properties are outside the scope of Arena's REST/WebSocket API, or don't ma
 |------|-----|
 | **Automation / keyframes** | Arena UI feature — not exposed through the API |
 | **Colored cue point markers** | The colored diamond markers in Arena's timeline are UI-only |
-| **Audio settings** | Clip audio (volume, pan) is not included in the snapshot |
 | **Live playback position** | Changes every frame — cue in/out points *are* saved, but the current playhead position is not |
 | **Layer-level settings** | Layer effects, layer blend mode, layer opacity, and layer transitions are not captured — snapshots are per-clip only |
-| **Clip name overrides** | Custom clip names set in Arena are not saved or restored |
 | **Composition settings** | Global composition properties (output resolution, FPS, etc.) are not affected |
 
 > **In short:** everything you set *on a clip* (effects, speed, cue points, blend mode, etc.) is saved. Everything set *on the layer* or *on the composition* is not.
