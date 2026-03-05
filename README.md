@@ -33,6 +33,8 @@ Here are some real-world examples:
 - **Config persistence** — sets, mappings, and snapshots saved to disk across restarts
 - **Tooltips & help** — hover over any button for a quick explanation, or open the built-in help panel for a full guide
 
+> **Important:** Always quit the app properly when you're done. If left running in the background (especially in watch mode), it will keep syncing files to Arena — which can cause unwanted changes if you switch to a different composition. See [Shutting down properly](#shutting-down-properly) for details.
+
 ### What gets saved and restored
 
 When you snapshot a layer, the following clip properties are captured and can be restored:
