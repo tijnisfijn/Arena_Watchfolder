@@ -1,7 +1,19 @@
 """Persistent configuration for Arena Watchfolder."""
 
 import json
+import platform
 from pathlib import Path
+
+
+def default_compositions_folder() -> str:
+    """Return the platform-appropriate default Compositions folder.
+
+    macOS:   ~/Documents/Resolume Arena/Compositions
+    Windows: ~\\Documents\\Resolume Arena\\Compositions
+    """
+    return str(
+        Path.home() / "Documents" / "Resolume Arena" / "Compositions"
+    )
 
 
 def _config_path() -> Path:
@@ -40,7 +52,12 @@ def _defaults() -> dict:
             }
         ],
         "active_set_id": "1",
+        "locked_composition": None,
+        "locked_deck": None,
         "options": {
             "rename_layers": False,
+            "composition_lock": False,
+            "compositions_folder": default_compositions_folder(),
+            "snapshot_folder": "",
         },
     }

@@ -369,6 +369,76 @@
         Rename layers to folder name
       </label>
     </div>
+
+    <div class="sep"></div>
+
+    <!-- Composition Lock -->
+    <div style="margin-bottom:8px;">
+      <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:13px;" title="When enabled, syncs are blocked if Arena has a different composition loaded">
+        <input type="checkbox" id="opt-comp-lock" onchange="toggleCompLock(this.checked)">
+        Composition lock
+      </label>
+    </div>
+    <div id="comp-lock-details" style="display:none; margin-left:22px;">
+      <div class="row" style="margin-bottom:8px;">
+        <div class="field">
+          <label>Locked to composition</label>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <select id="comp-lock-select" onchange="setLockedComposition(this.value)" style="flex:1;">
+              <option value="">-- Select --</option>
+            </select>
+            <button class="small" id="pick-avc-btn" style="display:none;" onclick="pickAvcFile()" title="Pick .avc file">Pick .avc file…</button>
+          </div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>Compositions folder</label>
+          <div style="display:flex;gap:6px;">
+            <input type="text" id="comp-folder" placeholder="/path/to/Resolume Arena/Compositions" style="flex:1;font-size:12px;">
+            <button class="small secondary" onclick="openBrowser('comp-folder')" title="Browse">Browse</button>
+            <button class="small secondary" onclick="saveCompFolder()" title="Save folder path">Set</button>
+          </div>
+        </div>
+      </div>
+      <div id="comp-lock-status" style="font-size:12px;color:#888;margin-top:6px;"></div>
+    </div>
+
+    <!-- Deck Lock (visible when connected, independent of composition lock) -->
+    <div id="deck-lock-section" style="margin-top:8px; display:none;">
+      <div style="margin-bottom:4px;">
+        <label style="font-size:13px; color:#e0e0e0;">Deck lock</label>
+      </div>
+      <div class="row" style="margin-bottom:4px;">
+        <div class="field">
+          <div style="display:flex;gap:6px;align-items:center;">
+            <select id="deck-lock-select" onchange="setLockedDeck(this.value)" style="flex:1;">
+              <option value="">-- Any deck --</option>
+            </select>
+            <button class="small secondary" onclick="loadDecks()" title="Refresh deck list">↻</button>
+          </div>
+          <div class="help-text" style="margin-top:2px;">Syncs are blocked if Arena has a different deck selected. Leave on "Any deck" to allow syncing regardless of the active deck.</div>
+        </div>
+      </div>
+      <div id="deck-lock-status" style="font-size:12px;color:#888;"></div>
+    </div>
+
+    <div class="sep"></div>
+
+    <!-- Snapshot Folder -->
+    <div style="margin-bottom:4px;">
+      <label style="font-size:13px; color:#e0e0e0;">Snapshot file location</label>
+      <div class="help-text" style="margin-top:2px;margin-bottom:6px;">Save all layer snapshots to a combined file for backup or sharing across machines. Leave empty to disable.</div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <div style="display:flex;gap:6px;">
+          <input type="text" id="snapshot-folder" placeholder="/path/to/shared/folder" style="flex:1;font-size:12px;">
+          <button class="small secondary" onclick="openBrowser('snapshot-folder')" title="Browse">Browse</button>
+          <button class="small secondary" onclick="saveSnapshotFolder()" title="Save snapshot folder path">Set</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Sets + Mappings -->
@@ -522,6 +592,8 @@
       const opts = await res.json();
       document.getElementById("opt-rename-layers").checked = !!opts.rename_layers;
     } catch (e) {}
+    // Load composition lock & snapshot folder
+    await loadCompLock();
   }
 
   async function toggleOption(key, value) {
@@ -530,6 +602,217 @@
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ [key]: value }),
+      });
+    } catch (e) {}
+  }
+
+  // ─── Composition Lock ───
+  async function loadCompLock() {
+    try {
+      const res = await fetch("/api/composition-lock");
+      const data = await res.json();
+      document.getElementById("opt-comp-lock").checked = !!data.enabled;
+      document.getElementById("comp-lock-details").style.display = data.enabled ? "" : "none";
+      document.getElementById("comp-folder").value = data.compositions_folder || "";
+      document.getElementById("snapshot-folder").value = data.snapshot_folder || "";
+      if (data.enabled && data.locked_composition) {
+        document.getElementById("comp-lock-status").textContent = `Locked to "${data.locked_composition}"`;
+      } else {
+        document.getElementById("comp-lock-status").textContent = "";
+      }
+      await loadCompositions(data.locked_composition);
+      // Always load decks (section auto-hides if ≤1 deck)
+      await loadDecks();
+    } catch (e) {}
+  }
+
+  async function loadCompositions(selected) {
+    const pickBtn = document.getElementById("pick-avc-btn");
+    const sel = document.getElementById("comp-lock-select");
+
+    // 1) Fetch from backend — includes Arena's current composition + folder scan
+    let compositions = [];
+    let currentArenaComp = null;
+    let folder = "";
+    try {
+      const res = await fetch("/api/compositions");
+      const data = await res.json();
+      compositions = data.compositions || [];
+      currentArenaComp = data.current || null;
+      folder = data.folder || "";
+    } catch (e) {
+      console.error("loadCompositions fetch error:", e);
+    }
+
+    // 2) If backend returned no files (TCC), try native pywebview listing
+    if (compositions.length === 0 && folder && window.pywebviewApi && window.pywebviewApi.list_avc_files) {
+      try {
+        const nativeList = await window.pywebviewApi.list_avc_files(folder);
+        if (nativeList && nativeList.length > 0) {
+          compositions = nativeList;
+        }
+      } catch (e) {
+        console.error("Native list_avc_files failed:", e);
+      }
+    }
+
+    // 3) Build a unique list: folder scan + current Arena comp + saved selection
+    const names = new Set(compositions);
+    if (currentArenaComp) names.add(currentArenaComp);
+    if (selected) names.add(selected);
+
+    // 4) Populate dropdown
+    sel.innerHTML = '<option value="">-- Select --</option>';
+    // Add "current in Arena" option prominently if connected
+    if (currentArenaComp) {
+      const opt = document.createElement("option");
+      opt.value = currentArenaComp;
+      opt.textContent = currentArenaComp + " (current)";
+      if (currentArenaComp === selected) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    // Add remaining compositions from folder scan (skip if already added as current)
+    for (const name of [...names].sort()) {
+      if (name === currentArenaComp) continue; // already added above
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      if (name === selected) opt.selected = true;
+      sel.appendChild(opt);
+    }
+
+    console.log("loadCompositions:", { compositions, currentArenaComp, selected, totalOptions: names.size });
+
+    // Show native file picker button when pywebviewApi is available
+    if (window.pywebviewApi && window.pywebviewApi.pick_avc_file) {
+      pickBtn.style.display = "";
+    }
+  }
+
+  async function pickAvcFile() {
+    const folder = document.getElementById("comp-folder").value.trim() || "";
+    const startDir = folder || "";
+    // Use native dialog if available, otherwise prompt for name
+    if (window.pywebviewApi && window.pywebviewApi.pick_avc_file) {
+      try {
+        const path = await window.pywebviewApi.pick_avc_file(startDir);
+        if (path) {
+          const parts = path.replace(/\\/g, "/").split("/");
+          let name = parts[parts.length - 1];
+          if (name.toLowerCase().endsWith(".avc")) name = name.slice(0, -4);
+          await setLockedComposition(name);
+          const dir = parts.slice(0, -1).join("/");
+          document.getElementById("comp-folder").value = dir;
+          await saveCompFolder();
+        }
+      } catch (e) {
+        console.error("Native file picker failed:", e);
+      }
+    } else {
+      const name = prompt("Enter composition name:");
+      if (name) await setLockedComposition(name.trim());
+    }
+  }
+
+  async function toggleCompLock(enabled) {
+    document.getElementById("comp-lock-details").style.display = enabled ? "" : "none";
+    try {
+      await fetch("/api/composition-lock", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      if (enabled) await loadCompLock();
+    } catch (e) {}
+  }
+
+  async function setLockedComposition(name) {
+    try {
+      await fetch("/api/composition-lock", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: true, composition: name }),
+      });
+      document.getElementById("comp-lock-status").textContent = name ? `Locked to "${name}"` : "";
+      // Reload decks when composition changes (different compositions may have different decks)
+      await loadDecks();
+    } catch (e) {}
+  }
+
+  // ─── Deck Lock ───
+  async function loadDecks() {
+    const section = document.getElementById("deck-lock-section");
+    const sel = document.getElementById("deck-lock-select");
+    const status = document.getElementById("deck-lock-status");
+    let decks = [];
+    let lockedDeck = null;
+    try {
+      const res = await fetch("/api/decks");
+      const data = await res.json();
+      decks = data.decks || [];
+      lockedDeck = data.locked_deck || null;
+    } catch (e) {
+      console.error("loadDecks error:", e);
+    }
+
+    // Only show deck section if composition has multiple decks
+    if (decks.length <= 1) {
+      section.style.display = "none";
+      return;
+    }
+    section.style.display = "";
+
+    sel.innerHTML = '<option value="">-- Any deck --</option>';
+    const currentDeck = decks.find(d => d.selected);
+    for (const deck of decks) {
+      const opt = document.createElement("option");
+      opt.value = deck.name;
+      opt.textContent = deck.name + (deck.selected ? " (active)" : "");
+      if (deck.name === lockedDeck) opt.selected = true;
+      sel.appendChild(opt);
+    }
+
+    if (lockedDeck) {
+      const isActive = currentDeck && currentDeck.name === lockedDeck;
+      status.textContent = isActive
+        ? `Deck "${lockedDeck}" is active ✓`
+        : `⚠ Deck "${lockedDeck}" is NOT active — syncs blocked`;
+      status.style.color = isActive ? "#4caf50" : "#ff9800";
+    } else {
+      status.textContent = "";
+    }
+  }
+
+  async function setLockedDeck(name) {
+    try {
+      await fetch("/api/deck-lock", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deck: name || null }),
+      });
+      await loadDecks();
+    } catch (e) {}
+  }
+
+  async function saveCompFolder() {
+    const folder = document.getElementById("comp-folder").value.trim();
+    try {
+      await fetch("/api/compositions-folder", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ folder }),
+      });
+      await loadCompLock();
+    } catch (e) {}
+  }
+
+  async function saveSnapshotFolder() {
+    const folder = document.getElementById("snapshot-folder").value.trim();
+    try {
+      await fetch("/api/snapshot-folder", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ folder }),
       });
     } catch (e) {}
   }
@@ -551,7 +834,10 @@
     } catch (e) { connected = false; }
     updateConnectionUI();
     btn.disabled = false; btn.textContent = "Connect";
-    if (connected) renderMappings(); // re-enable buttons
+    if (connected) {
+      renderMappings(); // re-enable buttons
+      await loadCompLock(); // reload compositions dropdown now that Arena is connected
+    }
   }
 
   function updateConnectionUI() {
@@ -762,7 +1048,9 @@
     try {
       const res = await fetch(`/api/mappings/${id}/sync`, { method: "POST" });
       const data = await res.json();
-      if (data.returning && data.returning.length > 0) {
+      if (!data.ok && data.error) {
+        alert(data.error);
+      } else if (data.returning && data.returning.length > 0) {
         showReturningModal(id, data.returning);
       }
     } catch (e) {}
@@ -779,7 +1067,9 @@
 
   async function startWatch(id) {
     try {
-      await fetch(`/api/mappings/${id}/watch/start`, { method: "POST" });
+      const res = await fetch(`/api/mappings/${id}/watch/start`, { method: "POST" });
+      const data = await res.json();
+      if (!data.ok && data.error) alert(data.error);
       await loadState();
     } catch (e) {}
   }
@@ -807,8 +1097,26 @@
   }
 
   // ─── Folder browser ───
-  function openBrowser(inputId) {
+  async function openBrowser(inputId) {
     browserTargetInput = document.getElementById(inputId);
+
+    // Desktop mode: use native OS folder dialog (has proper macOS TCC access)
+    if (window.pywebviewApi && window.pywebviewApi.pick_folder) {
+      const startPath = browserTargetInput.value.trim() || "";
+      try {
+        const path = await window.pywebviewApi.pick_folder(startPath);
+        if (path) {
+          browserTargetInput.value = path;
+          browserTargetInput.dispatchEvent(new Event("change"));
+        }
+      } catch (e) {
+        console.error("Native folder picker failed:", e);
+      }
+      browserTargetInput = null;
+      return;
+    }
+
+    // Browser mode fallback: custom modal
     const startPath = browserTargetInput.value.trim() || "";
     document.getElementById("folder-browser").classList.add("active");
     navigateTo(startPath);
@@ -863,7 +1171,12 @@
         item.onclick = () => navigateTo(data.path + "/" + dir);
         list.appendChild(item);
       }
-      if (!data.dirs.length && !data.parent) {
+      if (data.permission_error && !data.dirs.length) {
+        const errEl = document.createElement("div");
+        errEl.style.cssText = "padding:20px;color:#e0a555;text-align:center;font-size:13px;";
+        errEl.textContent = "Permission denied — macOS restricts access to this folder. Type the path manually or run in desktop mode for native folder picker.";
+        list.appendChild(errEl);
+      } else if (!data.dirs.length && !data.parent) {
         list.innerHTML = '<div style="padding:20px;color:#555;text-align:center;">No subfolders</div>';
       }
     } catch (e) {
@@ -964,6 +1277,12 @@
   connectSSE();
   checkDesktopMode();
   loadState();
+
+  // pywebview injects window.pywebviewApi AFTER page load.
+  // Re-run loadCompLock once it's ready so native buttons appear.
+  window.addEventListener("pywebviewready", () => {
+    loadCompLock();
+  });
 </script>
 </body>
 </html>

@@ -67,7 +67,7 @@ def restore_snapshot(api, layer: int, snapshot: list[dict],
         if not entries:
             continue
 
-        entry = entries.pop(0)
+        entry = _best_match(entries, clip)
         clip_data = entry["data"]
 
         # --- Effects ---
@@ -117,6 +117,47 @@ def extract_effect_name(effect: dict) -> str:
     if isinstance(name, dict):
         return name.get("value", "")
     return ""
+
+
+# ---------------------------------------------------------------------------
+# Clip matching
+# ---------------------------------------------------------------------------
+
+def _get_clip_name(clip_data: dict) -> str:
+    """Extract the user-visible clip name from a live clip or snapshot entry."""
+    name = clip_data.get("data", clip_data).get("name")
+    if isinstance(name, str):
+        return name
+    if isinstance(name, dict):
+        return name.get("value", "")
+    return ""
+
+
+def _best_match(entries: list[dict], clip: dict) -> dict:
+    """Pick the best snapshot entry for a live clip, removing it from entries.
+
+    Priority:
+      1. Slot + filename (exact position — best for smart sync)
+      2. Clip name match (user-renamed clips)
+      3. FIFO fallback (first available entry)
+    """
+    slot = clip.get("slot")
+
+    # 1) Slot match
+    if slot is not None:
+        for i, e in enumerate(entries):
+            if e.get("slot") == slot:
+                return entries.pop(i)
+
+    # 2) Clip name match
+    clip_name = _get_clip_name(clip)
+    if clip_name:
+        for i, e in enumerate(entries):
+            if _get_clip_name(e) == clip_name:
+                return entries.pop(i)
+
+    # 3) FIFO fallback
+    return entries.pop(0)
 
 
 # ---------------------------------------------------------------------------

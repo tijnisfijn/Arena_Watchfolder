@@ -191,6 +191,11 @@ class ArenaAPI:
         r.raise_for_status()
         return r.json()
 
+    def get_composition_name(self) -> str:
+        """Return the name of the currently loaded composition."""
+        info = self.get_composition_info()
+        return info.get("name", {}).get("value", "")
+
     def get_column_count(self) -> int:
         """Get the current number of columns from the composition."""
         info = self.get_composition_info()
@@ -366,6 +371,37 @@ class ArenaAPI:
         )
         r.raise_for_status()
 
+    # --- Deck management ---
+
+    def get_decks(self) -> list[dict]:
+        """Return list of decks: [{name, id, index, selected}, ...]."""
+        info = self.get_composition_info()
+        decks = info.get("decks", [])
+        result = []
+        for i, deck in enumerate(decks):
+            result.append({
+                "name": deck.get("name", {}).get("value", f"Deck {i + 1}"),
+                "id": deck.get("id"),
+                "index": i + 1,  # 1-based for API calls
+                "selected": deck.get("selected", {}).get("value", False),
+            })
+        return result
+
+    def get_selected_deck(self) -> str | None:
+        """Return the name of the currently selected deck, or None."""
+        for deck in self.get_decks():
+            if deck["selected"]:
+                return deck["name"]
+        return None
+
+    def select_deck(self, index: int):
+        """Select a deck by 1-based index."""
+        r = requests.post(
+            f"{self.base}/composition/decks/{index}/select",
+            timeout=10,
+        )
+        r.raise_for_status()
+
 
 # ---------------------------------------------------------------------------
 # Layer Snapshots — save/restore full layer state
@@ -425,6 +461,121 @@ def merge_snapshots(old_snap: list[dict] | None, new_snap: list[dict]) -> list[d
                 "remembered": True,
             })
 
+    return merged
+
+
+# ---------------------------------------------------------------------------
+# Combined snapshot file I/O
+# ---------------------------------------------------------------------------
+
+SNAPSHOT_FILENAME = "watchfolder_snapshot.json"
+
+
+def load_combined_snapshot(snapshot_folder: str) -> dict:
+    """Load the combined snapshot file from the configured folder.
+
+    Returns the full structure or an empty dict if not found / invalid.
+    """
+    if not snapshot_folder:
+        return {}
+    p = Path(snapshot_folder) / SNAPSHOT_FILENAME
+    if not p.is_file():
+        return {}
+    try:
+        with open(p, "r") as f:
+            data = json.load(f)
+        if isinstance(data, dict) and data.get("version") == 1:
+            return data
+    except (json.JSONDecodeError, OSError):
+        pass
+    return {}
+
+
+def save_combined_snapshot(snapshot_folder: str, layer: int, folder_path: str,
+                           merged_snapshot: list[dict],
+                           composition_name: str = ""):
+    """Update a single layer's data in the combined snapshot file.
+
+    Reads the existing file, updates the specified layer, writes back.
+    Only entries with data are written (empty slots are skipped).
+    """
+    if not snapshot_folder:
+        return
+    dest = Path(snapshot_folder)
+    if not dest.is_dir():
+        try:
+            dest.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return
+
+    filepath = dest / SNAPSHOT_FILENAME
+
+    # Read existing
+    combined = load_combined_snapshot(snapshot_folder)
+    if not combined:
+        combined = {"version": 1, "layers": {}}
+
+    # Update metadata
+    combined["composition"] = composition_name
+    combined["timestamp"] = datetime.now().isoformat(timespec="seconds")
+
+    # Update this layer (only entries with data)
+    clips = [e for e in merged_snapshot if e.get("filename") and e.get("data")]
+    combined.setdefault("layers", {})[str(layer)] = {
+        "folder": folder_path,
+        "clips": clips,
+    }
+
+    # Write
+    try:
+        with open(filepath, "w") as f:
+            json.dump(combined, f, indent=2)
+    except OSError:
+        pass
+
+
+def get_cross_layer_entries(snapshot_folder: str, exclude_layer: int) -> list[dict]:
+    """Load snapshot entries from ALL other layers in the combined file.
+
+    Used for cross-layer restore when a clip moves between folders.
+    """
+    combined = load_combined_snapshot(snapshot_folder)
+    entries = []
+    for lyr, data in combined.get("layers", {}).items():
+        if str(lyr) != str(exclude_layer):
+            entries.extend(data.get("clips", []))
+    return entries
+
+
+def merge_with_combined(config_snap: list[dict] | None,
+                        snapshot_folder: str,
+                        layer: int) -> list[dict] | None:
+    """Merge config snapshot with combined file data.
+
+    Config entries take priority. Combined file supplements with
+    entries for filenames not already in the config snapshot.
+    """
+    if not snapshot_folder:
+        return config_snap
+
+    combined = load_combined_snapshot(snapshot_folder)
+    layer_data = combined.get("layers", {}).get(str(layer))
+    if not layer_data:
+        return config_snap
+
+    combined_clips = layer_data.get("clips", [])
+    if not combined_clips:
+        return config_snap
+
+    if not config_snap:
+        return combined_clips
+
+    # Config filenames take priority
+    config_filenames = {e["filename"] for e in config_snap if e.get("filename")}
+    merged = list(config_snap)
+    for entry in combined_clips:
+        if entry.get("filename") and entry["filename"] not in config_filenames:
+            merged.append(entry)
     return merged
 
 
@@ -640,24 +791,48 @@ def sync_folder_to_layer(api: ArenaAPI, folder: str, layer: int,
 
 def watch_folder(api: ArenaAPI, folder: str, layer: int, stop_flag=None,
                  snapshot_getter=None, snapshot_saver=None,
-                 rename_layer=False):
+                 rename_layer=False, composition_checker=None,
+                 cross_layer_getter=None):
     """Continuously monitor the folder and re-sync when changes are detected.
 
-    snapshot_getter: optional callable returning the current snapshot for auto-restore.
-    snapshot_saver:  optional callable(snap) to persist a new snapshot after sync.
-    rename_layer:    if True, rename the layer to the folder name after each sync.
+    snapshot_getter:      optional callable returning the current snapshot for auto-restore.
+    snapshot_saver:       optional callable(snap) to persist a new snapshot after sync.
+    rename_layer:         if True, rename the layer to the folder name after each sync.
+    composition_checker:  optional callable() -> (ok, error_msg). When ok is False,
+                          the sync iteration is skipped (paused) until ok returns True.
+    cross_layer_getter:   optional callable() -> list[dict]. Returns snapshot entries
+                          from OTHER layers (for cross-layer restore of moved clips).
     """
     log(f"\n  WATCH MODE -- monitoring '{folder}' every {POLL_INTERVAL}s")
     if not stop_flag:
         log("  Press Ctrl+C to stop.\n")
 
     last_snapshot = None
+    _lock_warned = False  # only warn once about composition mismatch
 
     def _should_stop():
         return stop_flag and stop_flag()
 
+    def _composition_ok():
+        """Check composition lock. Returns True if sync is allowed."""
+        nonlocal _lock_warned
+        if not composition_checker:
+            return True
+        ok, err = composition_checker()
+        if not ok:
+            if not _lock_warned:
+                log(f"  PAUSED: {err}")
+                _lock_warned = True
+            return False
+        if _lock_warned:
+            log("  Lock check passed — resuming watch")
+            _lock_warned = False
+        return True
+
     def _sync_and_auto_restore():
-        """Save settings → sync → restore returning → save settings."""
+        """Save settings → sync → recreate duplicates → restore → cross-layer → save."""
+        from collections import Counter
+
         # 1) Save current settings before sync (merge to keep removed clips)
         if snapshot_saver:
             try:
@@ -677,11 +852,92 @@ def watch_folder(api: ArenaAPI, folder: str, layer: int, stop_flag=None,
         if rename_layer:
             rename_layer_to_folder(api, folder, layer)
 
+        # 2b) Recreate duplicate clips from snapshot
+        #     If the snapshot had N copies of a file but sync only created 1,
+        #     open extra copies in their original slots.
+        if snap:
+            # Count instances in snapshot (only entries with slot + data)
+            snap_counts = Counter(
+                e["filename"] for e in snap
+                if e.get("filename") and e.get("data") and e.get("slot") is not None
+            )
+            # Count instances currently on layer
+            current_clips = api.get_layer_clips(layer)
+            layer_counts = Counter(
+                Path(c["path"]).name for c in current_clips if c["path"]
+            )
+            for filename, snap_count in snap_counts.items():
+                layer_count = layer_counts.get(filename, 0)
+                extras = snap_count - layer_count
+                if extras <= 0:
+                    continue
+                # Find source file path from current layer
+                source_path = next(
+                    (c["path"] for c in current_clips
+                     if c["path"] and Path(c["path"]).name == filename),
+                    None,
+                )
+                if not source_path:
+                    continue
+                # Get original slot positions from snapshot
+                original_slots = [
+                    e["slot"] for e in snap
+                    if e.get("filename") == filename and e.get("slot") is not None
+                ]
+                # Exclude slots already occupied by this file
+                occupied_slots = {
+                    c["slot"] for c in current_clips
+                    if c["path"] and Path(c["path"]).name == filename
+                }
+                preferred_slots = [s for s in original_slots if s not in occupied_slots]
+
+                # Grow columns if needed
+                max_slot = max(original_slots) if original_slots else 0
+                total_needed = max(max_slot, len(current_clips) + extras)
+                api.grow_columns(total_needed)
+
+                # Open extra copies
+                for i in range(extras):
+                    if preferred_slots:
+                        slot = preferred_slots.pop(0)
+                    else:
+                        # Find next empty slot
+                        refreshed = api.get_layer_clips(layer)
+                        occupied = {c["slot"] for c in refreshed if c["path"]}
+                        slot = next(
+                            (c["slot"] for c in refreshed if c["slot"] not in occupied),
+                            len(refreshed) + 1,
+                        )
+                    try:
+                        api.open_clip(layer, slot, source_path)
+                    except Exception as exc:
+                        log(f"    Warning: could not recreate duplicate in slot {slot}: {exc}")
+                log(f"  Recreated {extras} duplicate(s) of {filename}")
+
         # 3) Auto-restore returning clips (only the ones that were re-added)
+        #    Re-read snap in case duplicates were added above
+        snap = snapshot_getter() if snapshot_getter else snap
         if result.get("returning") and snap:
             returning = set(result["returning"])
             log(f"  Auto-restoring settings for {len(returning)} returning clip(s)...")
             restore_snapshot(api, layer, snap, only_filenames=returning)
+
+        # 3b) Cross-layer restore for transferred clips
+        #     Files that are newly added but NOT returning = moved from another layer
+        if cross_layer_getter and result.get("added"):
+            added_names = {Path(p).name for p in result["added"]}
+            returning_names = set(result.get("returning", []))
+            transferred = added_names - returning_names
+            if transferred:
+                cross_entries = cross_layer_getter()
+                if cross_entries:
+                    # Filter to only entries for transferred filenames
+                    relevant = [e for e in cross_entries
+                                if e.get("filename") in transferred and e.get("data")]
+                    if relevant:
+                        log(f"  Cross-layer restore: {len(transferred)} transferred clip(s)...")
+                        restore_snapshot(api, layer, relevant,
+                                         only_filenames=transferred)
 
         # 4) Save settings after sync (merge to keep removed clips)
         if snapshot_saver:
@@ -717,7 +973,8 @@ def watch_folder(api: ArenaAPI, folder: str, layer: int, stop_flag=None,
         log("  Using watchdog for filesystem events (efficient mode)")
 
         last_snapshot = set(scan_folder(folder))
-        _sync_and_auto_restore()
+        if _composition_ok():
+            _sync_and_auto_restore()
 
         try:
             while not _should_stop():
@@ -726,6 +983,8 @@ def watch_folder(api: ArenaAPI, folder: str, layer: int, stop_flag=None,
                     handler.changed = False
                     current = set(scan_folder(folder))
                     if current != last_snapshot:
+                        if not _composition_ok():
+                            continue  # pause — don't update last_snapshot
                         added = current - last_snapshot
                         removed = last_snapshot - current
                         if added:
@@ -747,13 +1006,16 @@ def watch_folder(api: ArenaAPI, folder: str, layer: int, stop_flag=None,
         log("  (Install 'watchdog' for more efficient watching: pip install watchdog)\n")
 
         last_snapshot = set(scan_folder(folder))
-        _sync_and_auto_restore()
+        if _composition_ok():
+            _sync_and_auto_restore()
 
         try:
             while not _should_stop():
                 time.sleep(POLL_INTERVAL)
                 current = set(scan_folder(folder))
                 if current != last_snapshot:
+                    if not _composition_ok():
+                        continue  # pause — don't update last_snapshot
                     added = current - last_snapshot
                     removed = last_snapshot - current
                     if added:
@@ -765,6 +1027,76 @@ def watch_folder(api: ArenaAPI, folder: str, layer: int, stop_flag=None,
                     last_snapshot = current
         except KeyboardInterrupt:
             log("\n  Watch stopped.")
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _list_avc_files(folder: str) -> list:
+    """List .avc composition names (without extension) in *folder*.
+
+    Attempt 1 — direct ``Path.iterdir()`` (works everywhere unless blocked).
+    Attempt 2 — platform-specific subprocess fallback:
+        macOS:   ``osascript 'do shell script "ls …"'`` (bypasses TCC)
+        Windows: ``dir /b …`` via subprocess
+    """
+    if not folder:
+        return []
+
+    # --- Attempt 1: direct listing (cross-platform) ---
+    try:
+        p = Path(folder)
+        if p.is_dir():
+            names = []
+            for f in sorted(p.iterdir()):
+                if f.suffix.lower() == ".avc" and not f.name.startswith("."):
+                    names.append(f.stem)
+            if names:
+                return names
+    except (PermissionError, OSError):
+        pass  # TCC or other OS restriction — try fallback
+
+    # --- Attempt 2: platform-specific subprocess fallback ---
+    import subprocess
+
+    if platform.system() == "Darwin":
+        # macOS: osascript bypasses TCC restrictions on ~/Documents
+        try:
+            escaped = folder.replace("\\", "\\\\").replace('"', '\\"')
+            script = f'do shell script "ls \\"{escaped}\\""'
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                names = []
+                for line in result.stdout.strip().split("\n"):
+                    line = line.strip()
+                    if line.lower().endswith(".avc") and not line.startswith("."):
+                        names.append(line[:-4])
+                return sorted(names)
+        except Exception:
+            pass
+
+    elif platform.system() == "Windows":
+        # Windows: dir /b lists filenames in a directory
+        try:
+            result = subprocess.run(
+                ["cmd", "/c", "dir", "/b", folder],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                names = []
+                for line in result.stdout.strip().split("\n"):
+                    line = line.strip()
+                    if line.lower().endswith(".avc"):
+                        names.append(line[:-4])
+                return sorted(names)
+        except Exception:
+            pass
+
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -789,6 +1121,8 @@ def create_web_app(desktop_mode=False):
         "next_id": 1,
         "desktop_mode": desktop_mode,
         "options": saved.get("options", {"rename_layers": False}),
+        "locked_composition": saved.get("locked_composition"),
+        "locked_deck": saved.get("locked_deck"),
     }
 
     # Restore sets from config
@@ -821,6 +1155,16 @@ def create_web_app(desktop_mode=False):
         })
         _state["next_id"] = 2
 
+    # Auto-connect to Arena on startup using saved host/port
+    try:
+        _state["api"] = ArenaAPI(
+            host=_state["host"], port=_state["port"],
+        )
+        log(f"  Auto-connected to Arena at {_state['host']}:{_state['port']}")
+    except Exception:
+        _state["api"] = None
+        log("  Arena not reachable — connect manually")
+
     def _next_id():
         nid = str(_state["next_id"])
         _state["next_id"] += 1
@@ -852,6 +1196,8 @@ def create_web_app(desktop_mode=False):
             "port": _state["port"],
             "active_set_id": _state["active_set_id"],
             "options": _state["options"],
+            "locked_composition": _state.get("locked_composition"),
+            "locked_deck": _state.get("locked_deck"),
             "sets": [
                 {
                     "id": s["id"],
@@ -865,6 +1211,59 @@ def create_web_app(desktop_mode=False):
                 for s in _state["sets"]
             ],
         })
+
+    # --- Composition lock guard ---
+
+    def _check_composition_lock():
+        """Check if the composition lock allows syncing.
+
+        Returns (ok, error_msg).  ok=True means proceed.
+        """
+        if not _state["options"].get("composition_lock"):
+            return True, None
+        locked = _state.get("locked_composition")
+        if not locked:
+            return True, None
+        if not _state["api"]:
+            return False, "Cannot verify composition: not connected to Arena"
+        try:
+            current = _state["api"].get_composition_name()
+        except Exception as e:
+            return False, f"Cannot verify composition: {e}"
+        if current != locked:
+            return False, f"Composition mismatch: expected '{locked}', Arena has '{current}'"
+        return True, None
+
+    def _check_deck_lock():
+        """Check if the deck lock allows syncing.
+
+        Returns (ok, error_msg).  ok=True means proceed.
+        """
+        locked_deck = _state.get("locked_deck")
+        if not locked_deck:
+            return True, None  # no deck locked — always OK
+        if not _state["api"]:
+            return False, "Cannot verify deck: not connected to Arena"
+        try:
+            current = _state["api"].get_selected_deck()
+        except Exception as e:
+            return False, f"Cannot verify deck: {e}"
+        if current != locked_deck:
+            return False, f"Deck mismatch: expected '{locked_deck}', Arena has '{current}'"
+        return True, None
+
+    def _check_all_locks():
+        """Check both composition lock and deck lock.
+
+        Returns (ok, error_msg).  ok=True means proceed.
+        """
+        ok, err = _check_composition_lock()
+        if not ok:
+            return ok, err
+        ok, err = _check_deck_lock()
+        if not ok:
+            return ok, err
+        return True, None
 
     # --- Routes ---
 
@@ -886,12 +1285,13 @@ def create_web_app(desktop_mode=False):
         if not p.is_dir():
             return jsonify({"ok": False, "error": "Not a directory"}), 400
         dirs = []
+        permission_error = False
         try:
             for entry in sorted(p.iterdir()):
                 if entry.is_dir() and not entry.name.startswith("."):
                     dirs.append(entry.name)
         except PermissionError:
-            pass
+            permission_error = True
         # Count media files in this folder
         media_count = 0
         try:
@@ -899,13 +1299,14 @@ def create_web_app(desktop_mode=False):
                 if entry.is_file() and entry.suffix.lower() in MEDIA_EXTENSIONS:
                     media_count += 1
         except PermissionError:
-            pass
+            permission_error = True
         return jsonify({
             "ok": True,
             "path": str(p),
             "parent": str(p.parent) if p != p.parent else None,
             "dirs": dirs,
             "media_count": media_count,
+            "permission_error": permission_error,
         })
 
     @app.route("/api/options", methods=["GET"])
@@ -919,6 +1320,116 @@ def create_web_app(desktop_mode=False):
         _save()
         return jsonify({"ok": True})
 
+    @app.route("/api/composition-lock", methods=["GET"])
+    def get_composition_lock():
+        return jsonify({
+            "enabled": _state["options"].get("composition_lock", False),
+            "locked_composition": _state.get("locked_composition"),
+            "compositions_folder": _state["options"].get("compositions_folder", ""),
+            "snapshot_folder": _state["options"].get("snapshot_folder", ""),
+        })
+
+    @app.route("/api/composition-lock", methods=["PUT"])
+    def set_composition_lock():
+        data = flask_request.get_json(silent=True) or {}
+        enabled = data.get("enabled", False)
+        _state["options"]["composition_lock"] = enabled
+        if enabled:
+            comp_name = data.get("composition")
+            if comp_name:
+                _state["locked_composition"] = comp_name
+                log(f"  Composition lock enabled: '{comp_name}'")
+            elif _state["api"]:
+                # Auto-detect current composition name
+                try:
+                    name = _state["api"].get_composition_name()
+                    _state["locked_composition"] = name
+                    log(f"  Composition lock enabled: '{name}'")
+                except Exception:
+                    _state["locked_composition"] = None
+        else:
+            _state["locked_composition"] = None
+            log("  Composition lock disabled")
+        _save()
+        return jsonify({
+            "ok": True,
+            "locked_composition": _state.get("locked_composition"),
+        })
+
+    @app.route("/api/decks", methods=["GET"])
+    def list_decks():
+        """Return the list of decks in the current composition."""
+        if not _state["api"]:
+            return jsonify({"ok": True, "decks": [], "locked_deck": _state.get("locked_deck")})
+        try:
+            decks = _state["api"].get_decks()
+        except Exception:
+            decks = []
+        return jsonify({
+            "ok": True,
+            "decks": decks,
+            "locked_deck": _state.get("locked_deck"),
+        })
+
+    @app.route("/api/deck-lock", methods=["PUT"])
+    def set_deck_lock():
+        data = flask_request.get_json(silent=True) or {}
+        deck_name = data.get("deck")  # None or "" to clear
+        if deck_name:
+            _state["locked_deck"] = deck_name
+            log(f"  Deck lock set: '{deck_name}'")
+        else:
+            _state["locked_deck"] = None
+            log("  Deck lock cleared")
+        _save()
+        return jsonify({
+            "ok": True,
+            "locked_deck": _state.get("locked_deck"),
+        })
+
+    @app.route("/api/compositions", methods=["GET"])
+    def list_compositions():
+        """Return the current Arena composition name (and folder scan if possible)."""
+        # 1) Get the currently loaded composition name from Arena
+        current_name = None
+        if _state["api"]:
+            try:
+                current_name = _state["api"].get_composition_name()
+            except Exception:
+                pass
+
+        # 2) Try to scan the compositions folder for .avc files
+        folder = _state["options"].get("compositions_folder", "")
+        if not folder:
+            from config import default_compositions_folder
+            folder = default_compositions_folder()
+            _state["options"]["compositions_folder"] = folder
+            _save()
+        files = _list_avc_files(folder)
+
+        return jsonify({
+            "ok": True,
+            "compositions": files,
+            "current": current_name,
+            "folder": folder,
+        })
+
+    @app.route("/api/compositions-folder", methods=["PUT"])
+    def set_compositions_folder():
+        data = flask_request.get_json(silent=True) or {}
+        folder = data.get("folder", "")
+        _state["options"]["compositions_folder"] = folder
+        _save()
+        return jsonify({"ok": True})
+
+    @app.route("/api/snapshot-folder", methods=["PUT"])
+    def set_snapshot_folder():
+        data = flask_request.get_json(silent=True) or {}
+        folder = data.get("folder", "")
+        _state["options"]["snapshot_folder"] = folder
+        _save()
+        return jsonify({"ok": True})
+
     @app.route("/api/connect", methods=["POST"])
     def connect():
         data = flask_request.get_json(silent=True) or {}
@@ -929,6 +1440,11 @@ def create_web_app(desktop_mode=False):
             _state["host"] = host
             _state["port"] = port
             _save()
+            # Warn if composition/deck doesn't match lock
+            ok, err = _check_all_locks()
+            if not ok:
+                log(f"  WARNING: {err}")
+                return jsonify({"ok": True, "warning": err})
             return jsonify({"ok": True})
         except ArenaConnectionError as e:
             _state["api"] = None
@@ -994,6 +1510,9 @@ def create_web_app(desktop_mode=False):
             return jsonify({"ok": False, "error": "Set not found"}), 404
         if not _state["api"]:
             return jsonify({"ok": False, "error": "Not connected to Arena"}), 400
+        ok, err = _check_all_locks()
+        if not ok:
+            return jsonify({"ok": False, "error": err}), 409
 
         old_set = _active_set()
 
@@ -1003,6 +1522,7 @@ def create_web_app(desktop_mode=False):
                 m["watching"] = False
 
         # Snapshot current layer states into old set
+        sf = _state["options"].get("snapshot_folder", "")
         if old_set and _state["api"]:
             log(f"  Saving snapshots for '{old_set['name']}'...")
             for m in old_set["mappings"]:
@@ -1010,6 +1530,10 @@ def create_web_app(desktop_mode=False):
                     snap = snapshot_layer(_state["api"], m["layer"])
                     old_set["snapshots"][str(m["layer"])] = snap
                     log(f"    Layer {m['layer']}: {sum(1 for s in snap if s['filename'])} clips saved")
+                    if sf:
+                        comp = _state.get("locked_composition", "")
+                        save_combined_snapshot(sf, m["layer"], m["folder"],
+                                              snap, comp)
                 except Exception as e:
                     log(f"    Warning: could not snapshot layer {m['layer']}: {e}")
 
@@ -1028,8 +1552,11 @@ def create_web_app(desktop_mode=False):
                     if _state["options"].get("rename_layers"):
                         rename_layer_to_folder(_state["api"], m["folder"], m["layer"])
 
-                    # Restore snapshot if available
-                    layer_snap = new_set["snapshots"].get(str(m["layer"]))
+                    # Restore snapshot if available (merge with combined file)
+                    layer_snap = merge_with_combined(
+                        new_set["snapshots"].get(str(m["layer"])),
+                        sf, m["layer"]
+                    )
                     if layer_snap:
                         log(f"  Restoring settings for layer {m['layer']}...")
                         restore_snapshot(_state["api"], m["layer"], layer_snap)
@@ -1101,6 +1628,9 @@ def create_web_app(desktop_mode=False):
             return jsonify({"ok": False, "error": "Mapping not found"}), 404
         if not _state["api"]:
             return jsonify({"ok": False, "error": "Not connected to Arena"}), 400
+        ok, err = _check_all_locks()
+        if not ok:
+            return jsonify({"ok": False, "error": err}), 409
         data = flask_request.get_json(silent=True) or {}
         force = data.get("force", False)
         layer_key = str(m["layer"])
@@ -1116,7 +1646,11 @@ def create_web_app(desktop_mode=False):
             except Exception:
                 pass  # don't block sync if snapshot fails
 
-            layer_snap = s["snapshots"].get(layer_key)
+            # Merge with combined snapshot file for richer data
+            sf = _state["options"].get("snapshot_folder", "")
+            layer_snap = merge_with_combined(
+                s["snapshots"].get(layer_key), sf, m["layer"]
+            )
 
             # 2) Sync
             result = sync_folder_to_layer(
@@ -1148,6 +1682,11 @@ def create_web_app(desktop_mode=False):
                 pass
 
             _save()
+            sf = _state["options"].get("snapshot_folder", "")
+            if sf and s["snapshots"].get(layer_key):
+                comp = _state.get("locked_composition", "")
+                save_combined_snapshot(sf, m["layer"], m["folder"],
+                                      s["snapshots"][layer_key], comp)
             return jsonify({"ok": True, "returning": []})
         except Exception as e:
             log(f"  ERROR: {e}")
@@ -1165,6 +1704,9 @@ def create_web_app(desktop_mode=False):
             return jsonify({"ok": False, "error": "Not connected to Arena"}), 400
         if m["watching"]:
             return jsonify({"ok": False, "error": "Already watching"}), 400
+        ok, err = _check_all_locks()
+        if not ok:
+            return jsonify({"ok": False, "error": err}), 409
 
         m["watching"] = True
 
@@ -1173,15 +1715,34 @@ def create_web_app(desktop_mode=False):
         def _save_snap(snap):
             s["snapshots"][layer_key] = snap
             _save()
+            # Also write to combined snapshot file
+            sf = _state["options"].get("snapshot_folder", "")
+            if sf:
+                comp = _state.get("locked_composition", "")
+                save_combined_snapshot(sf, m["layer"], m["folder"], snap, comp)
+
+        def _get_snap():
+            sf = _state["options"].get("snapshot_folder", "")
+            return merge_with_combined(
+                s["snapshots"].get(layer_key), sf, m["layer"]
+            )
+
+        def _get_cross_layer():
+            sf = _state["options"].get("snapshot_folder", "")
+            if not sf:
+                return []
+            return get_cross_layer_entries(sf, exclude_layer=m["layer"])
 
         def run_watch():
             try:
                 watch_folder(
                     _state["api"], m["folder"], m["layer"],
                     stop_flag=lambda: not m["watching"],
-                    snapshot_getter=lambda: s["snapshots"].get(layer_key),
+                    snapshot_getter=_get_snap,
                     snapshot_saver=_save_snap,
                     rename_layer=_state["options"].get("rename_layers", False),
+                    composition_checker=_check_all_locks,
+                    cross_layer_getter=_get_cross_layer,
                 )
             except Exception as e:
                 log(f"  Watch error on layer {m['layer']}: {e}")
@@ -1224,6 +1785,12 @@ def create_web_app(desktop_mode=False):
             clip_count = sum(1 for e in new_snap if e["filename"])
             log(f"  Layer {m['layer']}: snapshot saved ({clip_count} clips)")
             _save()
+            # Also write to combined snapshot file
+            sf = _state["options"].get("snapshot_folder", "")
+            if sf:
+                comp = _state.get("locked_composition", "")
+                save_combined_snapshot(sf, m["layer"], m["folder"],
+                                      s["snapshots"][layer_key], comp)
             return jsonify({"ok": True, "clips": clip_count})
         except Exception as e:
             log(f"  ERROR: {e}")
@@ -1247,11 +1814,14 @@ def create_web_app(desktop_mode=False):
         if not _state["api"]:
             return jsonify({"ok": False, "error": "Not connected to Arena"}), 400
 
-        layer_snap = s["snapshots"].get(str(m["layer"]))
+        layer_key = str(m["layer"])
+        sf = _state["options"].get("snapshot_folder", "")
+        layer_snap = merge_with_combined(
+            s["snapshots"].get(layer_key), sf, m["layer"]
+        )
         if not layer_snap:
             return jsonify({"ok": False, "error": "No snapshot for this layer"}), 404
         try:
-            layer_key = str(m["layer"])
             data = flask_request.get_json(silent=True) or {}
             only = data.get("only")
             only_filenames = set(only) if only else None
@@ -1269,6 +1839,10 @@ def create_web_app(desktop_mode=False):
                     s["snapshots"].get(layer_key), post_snap,
                 )
                 _save()
+                if sf and s["snapshots"].get(layer_key):
+                    comp = _state.get("locked_composition", "")
+                    save_combined_snapshot(sf, m["layer"], m["folder"],
+                                          s["snapshots"][layer_key], comp)
                 log(f"  Settings saved after restore")
             except Exception:
                 pass
@@ -1297,6 +1871,11 @@ def create_web_app(desktop_mode=False):
             )
             log(f"  Keeping fresh settings for returning clips")
             _save()
+            sf = _state["options"].get("snapshot_folder", "")
+            if sf and s["snapshots"].get(layer_key):
+                comp = _state.get("locked_composition", "")
+                save_combined_snapshot(sf, m["layer"], m["folder"],
+                                      s["snapshots"][layer_key], comp)
             return jsonify({"ok": True})
         except Exception as e:
             log(f"  ERROR: {e}")
