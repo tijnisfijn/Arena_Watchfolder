@@ -1,3 +1,9 @@
 requests>=2.28
 watchdog>=3.0
 flask>=3.0
+websocket-client>=1.6
+
+# Optional — for desktop app mode (--desktop)
+# pywebview>=5.0
+# pystray>=0.19
+# Pillow>=10.0

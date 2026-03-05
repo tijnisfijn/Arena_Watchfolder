@@ -17,5 +17,22 @@ env/
 *.swo
 .DS_Store
 
+# User config (persists sets, mappings, snapshots)
+watchfolder_config.json
+
 # Claude Code
 .claude/
+
+# Installers and large binaries
+*.dmg
+*.exe
+*.msi
+
+# Docs (internal reference only)
+Docs/
+
+# Large/unused assets
+banner.png
+
+# Pip artifacts
+=*

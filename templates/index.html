@@ -15,13 +15,7 @@
     padding: 24px;
   }
 
-  h1 {
-    font-size: 20px;
-    font-weight: 600;
-    color: #fff;
-    margin-bottom: 24px;
-    letter-spacing: 0.5px;
-  }
+  h1 { font-size: 20px; font-weight: 600; color: #fff; letter-spacing: 0.5px; }
   h1 span { color: #7c83ff; }
 
   .card {
@@ -39,33 +33,19 @@
     letter-spacing: 1px;
     color: #8888aa;
     margin-bottom: 14px;
-  }
-
-  .row {
     display: flex;
-    gap: 10px;
-    align-items: end;
-    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
   }
 
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    flex: 1;
-    min-width: 120px;
-  }
+  .row { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
 
+  .field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 120px; }
   .field.small { flex: 0 0 100px; }
 
-  label {
-    font-size: 11px;
-    color: #8888aa;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
+  label { font-size: 11px; color: #8888aa; text-transform: uppercase; letter-spacing: 0.5px; }
 
-  input {
+  input, select {
     background: #0f1729;
     border: 1px solid #2a2a4a;
     border-radius: 6px;
@@ -76,89 +56,191 @@
     outline: none;
     transition: border-color 0.2s;
   }
-  input:focus { border-color: #7c83ff; }
+  input:focus, select:focus { border-color: #7c83ff; }
   input::placeholder { color: #555; }
 
-  button {
-    background: #7c83ff;
-    color: #fff;
-    border: none;
-    border-radius: 6px;
-    padding: 10px 20px;
-    font-size: 14px;
-    font-weight: 500;
+  select {
     cursor: pointer;
-    transition: background 0.2s, opacity 0.2s;
-    white-space: nowrap;
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23888' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 32px;
+  }
+  select option { background: #0f1729; color: #e0e0e0; }
+
+  button {
+    background: #7c83ff; color: #fff; border: none; border-radius: 6px;
+    padding: 10px 20px; font-size: 14px; font-weight: 500; cursor: pointer;
+    transition: background 0.2s, opacity 0.2s; white-space: nowrap;
   }
   button:hover { background: #6a70e0; }
   button:active { background: #5a60c0; }
   button:disabled { opacity: 0.4; cursor: not-allowed; }
 
-  button.secondary {
-    background: #2a2a4a;
-    color: #ccc;
-  }
+  button.secondary { background: #2a2a4a; color: #ccc; }
   button.secondary:hover { background: #3a3a5a; }
-
-  button.danger {
-    background: #e05555;
-  }
+  button.danger { background: #e05555; }
   button.danger:hover { background: #c04444; }
+  button.success { background: #2e7d32; }
+  button.success:hover { background: #256428; }
+  button.small { padding: 6px 12px; font-size: 12px; }
+  button.tiny { padding: 4px 8px; font-size: 11px; }
 
-  .status-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 13px;
-    margin-top: 12px;
-  }
-  .status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: #555;
-  }
+  .status-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; margin-top: 12px; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #555; flex-shrink: 0; }
   .status-dot.connected { background: #4caf50; }
   .status-dot.watching { background: #ff9800; animation: pulse 1.5s infinite; }
   .status-dot.disconnected { background: #e05555; }
 
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
-  }
-
-  .actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 16px;
-    flex-wrap: wrap;
-  }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 
   #log-output {
-    background: #0f1729;
-    border: 1px solid #2a2a4a;
-    border-radius: 6px;
-    padding: 12px;
-    font-family: "SF Mono", "Fira Code", "Cascadia Code", Menlo, monospace;
-    font-size: 12px;
-    line-height: 1.6;
-    height: 300px;
-    overflow-y: auto;
-    color: #a0a0c0;
+    background: #0f1729; border: 1px solid #2a2a4a; border-radius: 6px;
+    padding: 12px; font-family: "SF Mono", "Fira Code", "Cascadia Code", Menlo, monospace;
+    font-size: 12px; line-height: 1.6; height: 220px; overflow-y: auto; color: #a0a0c0;
   }
   #log-output .line { padding: 1px 0; }
   #log-output .time { color: #555; }
   #log-output .error { color: #e05555; }
 
   .container { max-width: 720px; margin: 0 auto; }
+  .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+
+  /* --- Mapping cards --- */
+  .mapping-card {
+    background: #0f1729;
+    border: 1px solid #2a2a4a;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 10px;
+    transition: border-color 0.2s;
+  }
+  .mapping-card.is-watching { border-color: #ff9800; }
+
+  .mapping-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .layer-badge {
+    background: #7c83ff; color: #fff; font-size: 11px; font-weight: 700;
+    padding: 4px 10px; border-radius: 4px; white-space: nowrap;
+  }
+  .folder-path {
+    font-size: 13px; color: #bbb; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; flex: 1; font-family: "SF Mono", Menlo, monospace;
+  }
+  .remove-btn {
+    background: none; border: none; color: #555; cursor: pointer;
+    font-size: 18px; padding: 0 4px; line-height: 1; transition: color 0.2s;
+  }
+  .remove-btn:hover { color: #e05555; }
+
+  .mapping-actions {
+    display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+  }
+  .watch-indicator {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; color: #ff9800; font-weight: 500;
+    background: rgba(255,152,0,0.1); padding: 4px 10px; border-radius: 4px;
+  }
+  .file-count {
+    font-size: 11px; color: #666; margin-left: auto;
+  }
+
+  /* --- Set selector --- */
+  .set-row { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; }
+  .set-row select { flex: 1; }
+
+  .set-name-edit { display: none; gap: 6px; align-items: center; margin-bottom: 12px; }
+  .set-name-edit input { flex: 1; }
+  .set-name-edit.active { display: flex; }
+
+  /* --- Add mapping form --- */
+  .add-form {
+    background: #0d1222; border: 1px dashed #2a2a4a; border-radius: 8px;
+    padding: 16px; margin-top: 12px; display: none;
+  }
+  .add-form.active { display: block; }
+  .add-form .form-row { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; margin-bottom: 10px; }
+  .add-form .form-row:last-child { margin-bottom: 0; }
+  .add-form .field { min-width: 100px; }
+
+  .empty-state { color: #555; font-size: 13px; text-align: center; padding: 24px 20px; }
+
+  /* --- Folder browser modal --- */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6); z-index: 100;
+    align-items: center; justify-content: center;
+  }
+  .modal-overlay.active { display: flex; }
+
+  .modal {
+    background: #16213e; border: 1px solid #2a2a4a; border-radius: 12px;
+    width: 520px; max-width: 90vw; max-height: 80vh;
+    display: flex; flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+
+  .modal-header {
+    padding: 16px 20px; border-bottom: 1px solid #2a2a4a;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .modal-header h2 { font-size: 15px; font-weight: 600; color: #fff; }
+  .modal-close {
+    background: none; border: none; color: #666; font-size: 20px;
+    cursor: pointer; padding: 0 4px; line-height: 1;
+  }
+  .modal-close:hover { color: #fff; }
+
+  .browser-path {
+    padding: 12px 20px; border-bottom: 1px solid #2a2a4a;
+    display: flex; gap: 8px; align-items: center;
+  }
+  .browser-path input {
+    flex: 1; font-size: 13px; padding: 8px 10px;
+    font-family: "SF Mono", Menlo, monospace;
+  }
+
+  .browser-info {
+    padding: 6px 20px; font-size: 11px; color: #666;
+    border-bottom: 1px solid #2a2a4a;
+  }
+  .browser-info .media-count { color: #7c83ff; font-weight: 600; }
+
+  .browser-list { flex: 1; overflow-y: auto; min-height: 200px; max-height: 400px; }
+
+  .browser-item {
+    padding: 9px 20px; font-size: 13px; cursor: pointer;
+    display: flex; align-items: center; gap: 8px;
+    transition: background 0.15s; border-bottom: 1px solid #1a1a2e;
+  }
+  .browser-item:hover { background: #1e2a4a; }
+  .browser-item .icon { color: #7c83ff; font-size: 14px; width: 18px; text-align: center; }
+  .browser-item.parent-dir { color: #888; }
+  .browser-item.parent-dir .icon { color: #888; }
+
+  .modal-footer {
+    padding: 14px 20px; border-top: 1px solid #2a2a4a;
+    display: flex; justify-content: flex-end; gap: 8px;
+  }
+
+  /* --- Separator --- */
+  .sep { height: 1px; background: #2a2a4a; margin: 12px 0; }
+
+  /* --- Tooltip-like help --- */
+  .help-text { font-size: 11px; color: #555; margin-top: 6px; }
 </style>
 </head>
 <body>
 <div class="container">
-  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:24px;">
-    <h1 style="margin-bottom:0"><span>Resolume Arena</span> &mdash; Watch Folder Sync</h1>
-    <button class="danger" onclick="quitServer()" style="font-size:12px; padding:8px 14px;">Quit Server</button>
+  <div class="header-bar">
+    <h1><span>Resolume Arena</span> &mdash; Watch Folder Sync</h1>
+    <button class="danger small" id="btn-quit" onclick="quitServer()">Quit Server</button>
   </div>
 
   <!-- Connection -->
@@ -181,27 +263,54 @@
     </div>
   </div>
 
-  <!-- Sync Settings -->
+  <!-- Sets + Mappings -->
   <div class="card">
-    <div class="card-title">Sync Settings</div>
-    <div class="row">
-      <div class="field">
-        <label for="folder">Folder Path</label>
-        <input type="text" id="folder" placeholder="/path/to/media">
-      </div>
-      <div class="field small">
-        <label for="layer">Layer</label>
-        <input type="number" id="layer" value="1" min="1" placeholder="1">
-      </div>
+    <div class="card-title">
+      <span>Sets &amp; Mappings</span>
+      <button class="tiny secondary" onclick="syncAllMappings()" id="btn-sync-all" style="display:none">Sync All</button>
     </div>
-    <div class="actions">
-      <button id="btn-sync" onclick="syncNow()" disabled>Sync Now</button>
-      <button id="btn-watch-start" class="secondary" onclick="startWatch()" disabled>Start Watch</button>
-      <button id="btn-watch-stop" class="danger" onclick="stopWatch()" disabled style="display:none">Stop Watch</button>
+
+    <!-- Set selector -->
+    <div class="set-row">
+      <select id="set-select" onchange="onSetChange()"></select>
+      <button class="tiny secondary" onclick="renameSet()" title="Rename set">Rename</button>
+      <button class="tiny" onclick="createSet()">+ New</button>
+      <button class="tiny danger" onclick="deleteSet()">Delete</button>
     </div>
-    <div class="status-badge" id="watch-status" style="display:none">
-      <span class="status-dot watching"></span>
-      <span>Watching for changes...</span>
+
+    <!-- Rename inline -->
+    <div class="set-name-edit" id="set-rename">
+      <input type="text" id="set-rename-input" placeholder="Set name" onkeydown="if(event.key==='Enter')saveSetName()">
+      <button class="small" onclick="saveSetName()">Save</button>
+      <button class="small secondary" onclick="cancelRename()">Cancel</button>
+    </div>
+
+    <!-- Mapping list -->
+    <div id="mappings-list"></div>
+
+    <!-- Add mapping -->
+    <div style="margin-top: 10px;">
+      <button class="small secondary" id="btn-add-mapping" onclick="showAddMapping()">+ Add Folder Mapping</button>
+    </div>
+    <div class="add-form" id="add-mapping-form">
+      <div class="form-row">
+        <div class="field">
+          <label>Folder Path</label>
+          <div style="display:flex;gap:6px;">
+            <input type="text" id="new-folder" placeholder="/path/to/media" style="flex:1">
+            <button class="small secondary" onclick="openBrowser('new-folder')">Browse</button>
+          </div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field small">
+          <label>Layer</label>
+          <input type="number" id="new-layer" value="1" min="1">
+        </div>
+        <button class="small" onclick="addMapping()">Add Mapping</button>
+        <button class="small secondary" onclick="hideAddMapping()">Cancel</button>
+      </div>
+      <div class="help-text">Map a folder of media files to an Arena layer. Files sync alphabetically into clip slots.</div>
     </div>
   </div>
 
@@ -212,21 +321,62 @@
   </div>
 </div>
 
+<!-- Folder browser modal -->
+<div class="modal-overlay" id="folder-browser" onclick="closeBrowserIfOverlay(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Browse Folders</h2>
+      <button class="modal-close" onclick="closeBrowser()">&times;</button>
+    </div>
+    <div class="browser-path">
+      <input type="text" id="browser-path-input" placeholder="/path" onkeydown="if(event.key==='Enter')navigateTo(this.value)">
+      <button class="small secondary" onclick="navigateTo(document.getElementById('browser-path-input').value)">Go</button>
+    </div>
+    <div class="browser-info" id="browser-info"></div>
+    <div class="browser-list" id="browser-list"></div>
+    <div class="modal-footer">
+      <button class="small secondary" onclick="closeBrowser()">Cancel</button>
+      <button class="small" onclick="selectBrowserFolder()">Select This Folder</button>
+    </div>
+  </div>
+</div>
+
+<!-- Returning clips modal -->
+<div class="modal-overlay" id="returning-modal" onclick="closeReturningIfOverlay(event)">
+  <div class="modal" style="width:440px;">
+    <div class="modal-header">
+      <h2>Returning Clips Detected</h2>
+      <button class="modal-close" onclick="keepFreshReturning()">&times;</button>
+    </div>
+    <div style="padding:16px 20px;">
+      <p style="font-size:13px;color:#bbb;margin-bottom:12px;">
+        These clips were previously loaded and we still have their saved settings (effects, speed, blend modes). Would you like to restore them?
+      </p>
+      <div id="returning-clips-list" style="max-height:200px;overflow-y:auto;margin-bottom:16px;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="small" onclick="keepFreshReturning()" style="background:#333;color:#ccc;">Keep Fresh</button>
+      <button class="small" onclick="restoreReturningClips()">Restore Settings</button>
+    </div>
+  </div>
+</div>
+
 <script>
   let connected = false;
-  let watching = false;
   let evtSource = null;
+  let state = { sets: [], active_set_id: null };
+  let browserTargetInput = null;
+  let browserCurrentPath = "";
+  let returningMappingId = null;
+  let returningClipNames = [];
 
-  // --- SSE log stream ---
+  // ─── SSE log stream ───
   function connectSSE() {
     if (evtSource) evtSource.close();
     evtSource = new EventSource("/api/logs");
     evtSource.onmessage = (event) => {
       const entry = JSON.parse(event.data);
       appendLog(entry.time, entry.text);
-    };
-    evtSource.onerror = () => {
-      // Will auto-reconnect
     };
   }
 
@@ -236,23 +386,36 @@
     line.className = "line";
     const time = isoTime ? isoTime.split("T")[1].split(".")[0] : "";
     const isError = /error/i.test(text);
-    line.innerHTML = `<span class="time">[${time}]</span> <span class="${isError ? 'error' : ''}">${escHtml(text)}</span>`;
+    line.innerHTML = `<span class="time">[${time}]</span> <span class="${isError ? 'error' : ''}">${esc(text)}</span>`;
     el.appendChild(line);
     el.scrollTop = el.scrollHeight;
   }
 
-  function escHtml(s) {
+  function esc(s) {
     return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
 
-  // --- API calls ---
+  // ─── State ───
+  async function loadState() {
+    try {
+      const res = await fetch("/api/status");
+      const data = await res.json();
+      state = data;
+      connected = data.connected;
+      document.getElementById("host").value = data.host || "127.0.0.1";
+      document.getElementById("arena-port").value = data.port || 8080;
+      updateConnectionUI();
+      renderSets();
+      renderMappings();
+    } catch (e) {}
+  }
+
+  // ─── Connection ───
   async function connectArena() {
     const host = document.getElementById("host").value;
     const port = document.getElementById("arena-port").value;
     const btn = document.getElementById("btn-connect");
-    btn.disabled = true;
-    btn.textContent = "Connecting...";
-
+    btn.disabled = true; btn.textContent = "Connecting...";
     try {
       const res = await fetch("/api/connect", {
         method: "POST",
@@ -260,123 +423,381 @@
         body: JSON.stringify({ host, port: parseInt(port) }),
       });
       const data = await res.json();
-      if (data.ok) {
-        setConnected(true);
-      } else {
-        setConnected(false);
-      }
-    } catch (e) {
-      setConnected(false);
-    }
-    btn.disabled = false;
-    btn.textContent = "Connect";
+      connected = data.ok;
+    } catch (e) { connected = false; }
+    updateConnectionUI();
+    btn.disabled = false; btn.textContent = "Connect";
+    if (connected) renderMappings(); // re-enable buttons
   }
 
-  async function syncNow() {
-    const folder = document.getElementById("folder").value;
-    const layer = document.getElementById("layer").value;
-    const btn = document.getElementById("btn-sync");
-    btn.disabled = true;
-    btn.textContent = "Syncing...";
-
-    try {
-      const res = await fetch("/api/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ folder, layer: parseInt(layer) }),
-      });
-      await res.json();
-    } catch (e) {
-      // Error logged via SSE
-    }
-    btn.disabled = false;
-    btn.textContent = "Sync Now";
-  }
-
-  async function startWatch() {
-    const folder = document.getElementById("folder").value;
-    const layer = document.getElementById("layer").value;
-
-    try {
-      const res = await fetch("/api/watch/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ folder, layer: parseInt(layer) }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setWatching(true);
-      }
-    } catch (e) {
-      // Error logged via SSE
-    }
-  }
-
-  async function stopWatch() {
-    try {
-      await fetch("/api/watch/stop", { method: "POST" });
-      setWatching(false);
-    } catch (e) {
-      // ignore
-    }
-  }
-
-  // --- UI state ---
-  function setConnected(state) {
-    connected = state;
+  function updateConnectionUI() {
     const dot = document.getElementById("conn-dot");
     const text = document.getElementById("conn-text");
-    dot.className = "status-dot " + (state ? "connected" : "disconnected");
-    text.textContent = state ? "Connected" : "Disconnected";
-    document.getElementById("btn-sync").disabled = !state;
-    document.getElementById("btn-watch-start").disabled = !state;
+    dot.className = "status-dot " + (connected ? "connected" : "disconnected");
+    text.textContent = connected ? "Connected" : "Disconnected";
   }
 
-  function setWatching(state) {
-    watching = state;
-    document.getElementById("btn-watch-start").style.display = state ? "none" : "";
-    document.getElementById("btn-watch-stop").style.display = state ? "" : "none";
-    document.getElementById("btn-watch-stop").disabled = false;
-    document.getElementById("btn-sync").disabled = state;
-    document.getElementById("watch-status").style.display = state ? "" : "none";
-
-    // Poll for watch stopping
-    if (state) {
-      const poll = setInterval(async () => {
-        try {
-          const res = await fetch("/api/status");
-          const data = await res.json();
-          if (!data.watching) {
-            setWatching(false);
-            clearInterval(poll);
-          }
-        } catch (e) {
-          clearInterval(poll);
-        }
-      }, 2000);
+  // ─── Sets ───
+  function renderSets() {
+    const sel = document.getElementById("set-select");
+    sel.innerHTML = "";
+    for (const s of state.sets) {
+      const opt = document.createElement("option");
+      opt.value = s.id;
+      opt.textContent = s.name;
+      if (s.id === state.active_set_id) opt.selected = true;
+      sel.appendChild(opt);
     }
   }
 
-  // --- Quit server ---
-  async function quitServer() {
-    if (!confirm("This will shut down the watchfolder server. Continue?")) return;
+  async function onSetChange() {
+    const setId = document.getElementById("set-select").value;
+    if (setId === state.active_set_id) return;
+    if (!connected) {
+      alert("Connect to Arena first before switching sets.");
+      document.getElementById("set-select").value = state.active_set_id;
+      return;
+    }
+    if (!confirm("Switch set? Current clip settings will be saved, then the new set will be synced and restored.")) {
+      document.getElementById("set-select").value = state.active_set_id;
+      return;
+    }
     try {
-      await fetch("/api/shutdown", { method: "POST" });
-    } catch (e) {
-      // Connection will drop — that's expected
-    }
-    document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#888;font-family:sans-serif;"><div style="text-align:center;"><h2 style="color:#fff;margin-bottom:12px;">Server stopped</h2><p>You can close this tab.</p></div></div>';
+      await fetch(`/api/sets/${setId}/activate`, { method: "POST" });
+      state.active_set_id = setId;
+      await loadState();
+    } catch (e) {}
   }
 
-  // --- Warn on tab close if server is running ---
+  async function createSet() {
+    const name = prompt("New set name:");
+    if (!name) return;
+    try {
+      await fetch("/api/sets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      await loadState();
+    } catch (e) {}
+  }
+
+  async function deleteSet() {
+    if (state.sets.length <= 1) { alert("Cannot delete the last set."); return; }
+    const active = state.sets.find(s => s.id === state.active_set_id);
+    if (!confirm(`Delete set "${active?.name}"?`)) return;
+    try {
+      await fetch(`/api/sets/${state.active_set_id}`, { method: "DELETE" });
+      await loadState();
+    } catch (e) {}
+  }
+
+  function renameSet() {
+    const active = state.sets.find(s => s.id === state.active_set_id);
+    document.getElementById("set-rename-input").value = active?.name || "";
+    document.getElementById("set-rename").classList.add("active");
+    document.getElementById("set-rename-input").focus();
+  }
+
+  async function saveSetName() {
+    const name = document.getElementById("set-rename-input").value.trim();
+    if (!name) return;
+    try {
+      await fetch(`/api/sets/${state.active_set_id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      document.getElementById("set-rename").classList.remove("active");
+      await loadState();
+    } catch (e) {}
+  }
+
+  function cancelRename() {
+    document.getElementById("set-rename").classList.remove("active");
+  }
+
+  // ─── Mappings ───
+  function renderMappings() {
+    const list = document.getElementById("mappings-list");
+    const activeSet = state.sets.find(s => s.id === state.active_set_id);
+    const syncAllBtn = document.getElementById("btn-sync-all");
+
+    if (!activeSet || !activeSet.mappings.length) {
+      list.innerHTML = '<div class="empty-state">No folder mappings yet.<br>Click "+ Add Folder Mapping" below to map a media folder to an Arena layer.</div>';
+      syncAllBtn.style.display = "none";
+      return;
+    }
+
+    syncAllBtn.style.display = connected ? "" : "none";
+    list.innerHTML = "";
+
+    for (const m of activeSet.mappings) {
+      const card = document.createElement("div");
+      card.className = "mapping-card" + (m.watching ? " is-watching" : "");
+
+      const folderDisplay = m.folder || "(no folder set)";
+      const w = m.watching;
+
+      card.innerHTML = `
+        <div class="mapping-top">
+          <span class="layer-badge">Layer ${m.layer}</span>
+          <span class="folder-path" title="${esc(m.folder)}">${esc(folderDisplay)}</span>
+          ${w ? '<span class="watch-indicator"><span class="status-dot watching"></span>Watching</span>' : ''}
+          <button class="remove-btn" onclick="removeMapping('${m.id}')" title="Remove">&times;</button>
+        </div>
+        <div class="mapping-actions">
+          <button class="small" onclick="syncMapping('${m.id}', this)" ${!connected ? 'disabled' : ''}>Sync Now</button>
+          ${!w
+            ? `<button class="small success" onclick="startWatch('${m.id}')" ${!connected ? 'disabled' : ''}>Start Watch</button>`
+            : `<button class="small danger" onclick="stopWatch('${m.id}')">Stop Watch</button>`
+          }
+          <button class="small secondary" onclick="snapshotMapping('${m.id}', this)" ${!connected ? 'disabled' : ''} title="Save all clip settings (effects, speed, etc.)">Save Settings</button>
+          <button class="small secondary" onclick="restoreMapping('${m.id}')" ${!connected ? 'disabled' : ''} title="Restore clip settings from last save">Restore Settings</button>
+        </div>
+      `;
+      list.appendChild(card);
+    }
+  }
+
+  function showAddMapping() {
+    document.getElementById("add-mapping-form").classList.add("active");
+    document.getElementById("btn-add-mapping").style.display = "none";
+    document.getElementById("new-folder").focus();
+  }
+
+  function hideAddMapping() {
+    document.getElementById("add-mapping-form").classList.remove("active");
+    document.getElementById("btn-add-mapping").style.display = "";
+    document.getElementById("new-folder").value = "";
+    document.getElementById("new-layer").value = "1";
+  }
+
+  async function addMapping() {
+    const folder = document.getElementById("new-folder").value.trim();
+    const layer = parseInt(document.getElementById("new-layer").value);
+    if (!folder) { alert("Enter a folder path or use Browse."); return; }
+    try {
+      await fetch("/api/mappings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ folder, layer }),
+      });
+      hideAddMapping();
+      await loadState();
+    } catch (e) {}
+  }
+
+  async function removeMapping(id) {
+    if (!confirm("Remove this folder mapping?")) return;
+    try {
+      await fetch(`/api/mappings/${id}`, { method: "DELETE" });
+      await loadState();
+    } catch (e) {}
+  }
+
+  async function syncMapping(id, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = "Syncing..."; }
+    try {
+      const res = await fetch(`/api/mappings/${id}/sync`, { method: "POST" });
+      const data = await res.json();
+      if (data.returning && data.returning.length > 0) {
+        showReturningModal(id, data.returning);
+      }
+    } catch (e) {}
+    if (btn) { btn.disabled = false; btn.textContent = "Sync Now"; }
+  }
+
+  async function syncAllMappings() {
+    const activeSet = state.sets.find(s => s.id === state.active_set_id);
+    if (!activeSet) return;
+    for (const m of activeSet.mappings) {
+      await syncMapping(m.id, null);
+    }
+  }
+
+  async function startWatch(id) {
+    try {
+      await fetch(`/api/mappings/${id}/watch/start`, { method: "POST" });
+      await loadState();
+    } catch (e) {}
+  }
+
+  async function stopWatch(id) {
+    try {
+      await fetch(`/api/mappings/${id}/watch/stop`, { method: "POST" });
+      setTimeout(loadState, 500);
+    } catch (e) {}
+  }
+
+  async function snapshotMapping(id, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = "Saving..."; }
+    try {
+      await fetch(`/api/mappings/${id}/snapshot`, { method: "POST" });
+    } catch (e) {}
+    if (btn) { btn.disabled = false; btn.textContent = "Save Settings"; }
+  }
+
+  async function restoreMapping(id) {
+    if (!confirm("Restore clip settings (effects, speed, etc.) from the last save?")) return;
+    try {
+      await fetch(`/api/mappings/${id}/restore`, { method: "POST" });
+    } catch (e) {}
+  }
+
+  // ─── Folder browser ───
+  function openBrowser(inputId) {
+    browserTargetInput = document.getElementById(inputId);
+    const startPath = browserTargetInput.value.trim() || "";
+    document.getElementById("folder-browser").classList.add("active");
+    navigateTo(startPath);
+  }
+
+  function closeBrowser() {
+    document.getElementById("folder-browser").classList.remove("active");
+    browserTargetInput = null;
+  }
+
+  function closeBrowserIfOverlay(e) {
+    if (e.target === document.getElementById("folder-browser")) closeBrowser();
+  }
+
+  function selectBrowserFolder() {
+    if (browserTargetInput && browserCurrentPath) {
+      browserTargetInput.value = browserCurrentPath;
+    }
+    closeBrowser();
+  }
+
+  async function navigateTo(path) {
+    const list = document.getElementById("browser-list");
+    const info = document.getElementById("browser-info");
+    list.innerHTML = '<div style="padding:20px;color:#555;text-align:center;">Loading...</div>';
+    info.innerHTML = "";
+    try {
+      const url = "/api/browse" + (path ? "?path=" + encodeURIComponent(path) : "");
+      const res = await fetch(url);
+      const data = await res.json();
+      if (!data.ok) {
+        list.innerHTML = `<div style="padding:20px;color:#e05555;text-align:center;">${esc(data.error)}</div>`;
+        return;
+      }
+      browserCurrentPath = data.path;
+      document.getElementById("browser-path-input").value = data.path;
+      info.innerHTML = data.media_count > 0
+        ? `<span class="media-count">${data.media_count} media file(s)</span> in this folder`
+        : "No media files in this folder";
+      list.innerHTML = "";
+      if (data.parent) {
+        const parentEl = document.createElement("div");
+        parentEl.className = "browser-item parent-dir";
+        parentEl.innerHTML = `<span class="icon">..</span> Parent folder`;
+        parentEl.onclick = () => navigateTo(data.parent);
+        list.appendChild(parentEl);
+      }
+      for (const dir of data.dirs) {
+        const item = document.createElement("div");
+        item.className = "browser-item";
+        item.innerHTML = `<span class="icon">&#128193;</span> ${esc(dir)}`;
+        item.onclick = () => navigateTo(data.path + "/" + dir);
+        list.appendChild(item);
+      }
+      if (!data.dirs.length && !data.parent) {
+        list.innerHTML = '<div style="padding:20px;color:#555;text-align:center;">No subfolders</div>';
+      }
+    } catch (e) {
+      list.innerHTML = '<div style="padding:20px;color:#e05555;text-align:center;">Could not browse</div>';
+    }
+  }
+
+  // ─── Returning clips modal ───
+  function showReturningModal(mappingId, clips) {
+    returningMappingId = mappingId;
+    returningClipNames = clips;
+    const list = document.getElementById("returning-clips-list");
+    list.innerHTML = "";
+    for (const name of clips) {
+      const item = document.createElement("div");
+      item.style.cssText = "padding:6px 10px;font-size:13px;font-family:'SF Mono',Menlo,monospace;color:#7c83ff;background:#0f1729;border-radius:4px;margin-bottom:4px;";
+      item.textContent = name;
+      list.appendChild(item);
+    }
+    document.getElementById("returning-modal").classList.add("active");
+  }
+
+  function closeReturningModal() {
+    document.getElementById("returning-modal").classList.remove("active");
+    returningMappingId = null;
+    returningClipNames = [];
+  }
+
+  function closeReturningIfOverlay(e) {
+    if (e.target === document.getElementById("returning-modal")) keepFreshReturning();
+  }
+
+  async function restoreReturningClips() {
+    if (!returningMappingId) return;
+    try {
+      await fetch(`/api/mappings/${returningMappingId}/restore`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({only: returningClipNames}),
+      });
+    } catch (e) {}
+    closeReturningModal();
+  }
+
+  async function keepFreshReturning() {
+    if (!returningMappingId) return;
+    try {
+      await fetch(`/api/mappings/${returningMappingId}/keep-fresh`, { method: "POST" });
+    } catch (e) {}
+    closeReturningModal();
+  }
+
+  // ─── Quit ───
+  let isDesktop = false;
+
+  async function quitServer() {
+    const msg = isDesktop ? "Quit Arena Watchfolder?" : "Shut down the watchfolder server?";
+    if (!confirm(msg)) return;
+    try { await fetch("/api/shutdown", { method: "POST" }); } catch (e) {}
+    const closeMsg = isDesktop ? "You can close this window." : "You can close this tab.";
+    document.body.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#888;font-family:sans-serif;"><div style="text-align:center;"><h2 style="color:#fff;margin-bottom:12px;">Server stopped</h2><p>${closeMsg}</p></div></div>`;
+  }
+
+  // ─── Desktop mode ───
+  async function checkDesktopMode() {
+    try {
+      const res = await fetch("/api/mode");
+      const data = await res.json();
+      isDesktop = !!data.desktop;
+      if (isDesktop) {
+        // In desktop mode: show Quit button (relabeled) — it's the way to exit
+        document.getElementById("btn-quit").textContent = "Quit";
+      }
+    } catch (e) {}
+  }
+
+  // ─── Tab close warning (browser mode only) ───
   window.addEventListener("beforeunload", (e) => {
+    if (isDesktop) return;  // No warning in desktop mode
     e.preventDefault();
-    e.returnValue = "The watchfolder server is still running in the background. Use the Quit Server button to stop it first.";
+    e.returnValue = "The watchfolder server is still running. Use the Quit Server button to stop it.";
     return e.returnValue;
   });
 
-  // Start SSE on page load
+  // ─── Poll watch state ───
+  setInterval(async () => {
+    const activeSet = state.sets.find(s => s.id === state.active_set_id);
+    if (!activeSet) return;
+    if (activeSet.mappings.some(m => m.watching)) await loadState();
+  }, 3000);
+
+  // ─── Init ───
   connectSSE();
+  checkDesktopMode();
+  loadState();
 </script>
 </body>
 </html>

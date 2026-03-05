@@ -2,7 +2,7 @@
 """
 Resolume Arena Watch Folder Sync
 ================================
-Syncs a local folder of media files to a specific layer in Resolume Arena.
+Syncs local folders of media files to layers in Resolume Arena.
 
 Usage:
     # One-shot sync (default)
@@ -11,8 +11,11 @@ Usage:
     # Continuous watch mode
     python watchfolder.py --folder "/path/to/media" --layer 3 --watch
 
-    # Custom Arena host/port
-    python watchfolder.py --folder "/path/to/media" --layer 3 --host 192.168.1.10 --port 8080
+    # Web UI
+    python watchfolder.py --ui
+
+    # Desktop app (native window + system tray)
+    python watchfolder.py --desktop
 
 Requirements:
     - Python 3.7+
@@ -118,25 +121,27 @@ class ArenaConnectionError(Exception):
 # ---------------------------------------------------------------------------
 
 def path_to_file_uri(filepath: str) -> str:
-    """Convert a local file path to a file:/// URI that Resolume understands.
-
-    Handles both macOS (/Users/...) and Windows (C:\\Users\\...) paths,
-    and correctly URL-encodes special characters (spaces, brackets, etc.).
-    """
+    """Convert a local file path to a file:/// URI that Resolume understands."""
     p = Path(filepath).resolve()
-    # pathlib on Windows gives backslashes; we need forward slashes
-    posix = p.as_posix()  # e.g. C:/Users/...  or  /Users/...
+    posix = p.as_posix()
 
-    # On Windows, Path.as_posix() gives "C:/Users/..." — we need "/C:/Users/..."
     if platform.system() == "Windows" and not posix.startswith("/"):
         posix = "/" + posix
 
-    # URL-encode each path component (but keep the slashes)
     parts = posix.split("/")
     encoded_parts = [urllib.parse.quote(part, safe="") for part in parts]
     encoded_path = "/".join(encoded_parts)
 
     return f"file://{encoded_path}"
+
+
+def normalize_path(p):
+    """Normalize a file path for comparison (handles file:// URIs and OS paths)."""
+    if p is None:
+        return None
+    if p.startswith("file://"):
+        p = urllib.parse.unquote(urllib.parse.urlparse(p).path)
+    return str(Path(p).resolve())
 
 
 def scan_folder(folder: str) -> list[str]:
@@ -160,6 +165,8 @@ class ArenaAPI:
     """Thin wrapper around the Resolume Arena REST API."""
 
     def __init__(self, host: str = "127.0.0.1", port: int = 8080):
+        self.host = host
+        self.port = port
         self.base = f"http://{host}:{port}/api/v1"
         self._check_connection()
 
@@ -187,7 +194,6 @@ class ArenaAPI:
     def get_column_count(self) -> int:
         """Get the current number of columns from the composition."""
         info = self.get_composition_info()
-        # The composition JSON has a "columns" array — its length is the count
         columns = info.get("columns", [])
         return len(columns) if isinstance(columns, list) else 0
 
@@ -200,6 +206,39 @@ class ArenaAPI:
         )
         r.raise_for_status()
 
+    def get_layer_clips(self, layer: int) -> list[dict]:
+        """Get all clips on a layer with their slot index, file path, and full data.
+
+        Returns list of dicts:
+            [{"slot": 1, "path": "/path/to/file.mov", "data": {full clip JSON}}, ...]
+        Empty slots have path=None and data=None.
+        """
+        r = requests.get(f"{self.base}/composition/layers/{layer}", timeout=10)
+        if r.status_code == 404:
+            raise ValueError(f"Layer {layer} does not exist in the composition.")
+        r.raise_for_status()
+        layer_data = r.json()
+
+        clips = []
+        for i, clip in enumerate(layer_data.get("clips", []), start=1):
+            connected = clip.get("connected", {}).get("value", "Empty")
+            if connected == "Empty":
+                clips.append({"slot": i, "path": None, "data": None})
+            else:
+                video = clip.get("video") or {}
+                fileinfo = video.get("fileinfo") or {}
+                file_path = fileinfo.get("path")
+                clips.append({"slot": i, "path": file_path, "data": clip})
+        return clips
+
+    def clear_clip(self, layer: int, clip: int):
+        """Clear a single clip slot on a layer."""
+        r = requests.post(
+            f"{self.base}/composition/layers/{layer}/clips/{clip}/clear",
+            timeout=10,
+        )
+        r.raise_for_status()
+
     def clear_layer_clips(self, layer: int):
         """Remove ALL clip content from a layer (wipes the slots)."""
         r = requests.post(f"{self.base}/composition/layers/{layer}/clearclips", timeout=10)
@@ -207,23 +246,36 @@ class ArenaAPI:
             raise ValueError(f"Layer {layer} does not exist in the composition.")
         r.raise_for_status()
 
-    def batch_open_clips(self, layer: int, file_paths: list[str]):
-        """Load a list of files into consecutive clip slots on the given layer.
+    def open_clip(self, layer: int, clip: int, file_path: str):
+        """Load a file into a specific clip slot on a layer."""
+        uri = path_to_file_uri(file_path)
+        r = requests.post(
+            f"{self.base}/composition/layers/{layer}/clips/{clip}/open",
+            data=uri,
+            headers={"Content-Type": "text/plain"},
+            timeout=30,
+        )
+        r.raise_for_status()
 
-        Uses the batch /composition/clips/open endpoint for efficiency.
+    def batch_open_clips(self, layer: int, slot_file_pairs: list[tuple[int, str]]):
+        """Load files into specific clip slots using the batch endpoint.
+
+        slot_file_pairs: list of (slot_number, file_path) tuples.
         """
+        if not slot_file_pairs:
+            return
         payload = []
-        for i, fpath in enumerate(file_paths, start=1):
+        for slot, fpath in slot_file_pairs:
             uri = path_to_file_uri(fpath)
             payload.append({
-                "target": f"/composition/layers/{layer}/clips/{i}",
+                "target": f"/composition/layers/{layer}/clips/{slot}",
                 "source": uri,
             })
 
         r = requests.post(
             f"{self.base}/composition/clips/open",
             json=payload,
-            timeout=60,  # loading many large files can take a while
+            timeout=60,
         )
         if r.status_code == 404:
             log("ERROR: One or more clip slots or files were not found.")
@@ -240,62 +292,261 @@ class ArenaAPI:
         except Exception:
             return f"Layer {layer}"
 
+    def get_clip_data(self, layer: int, clip: int) -> dict:
+        """Get full clip data for a specific slot."""
+        r = requests.get(
+            f"{self.base}/composition/layers/{layer}/clips/{clip}",
+            timeout=10,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def update_clip(self, layer: int, clip: int, data: dict):
+        """Update clip properties (for restoring settings from snapshot)."""
+        r = requests.put(
+            f"{self.base}/composition/layers/{layer}/clips/{clip}",
+            json=data,
+            timeout=30,
+        )
+        r.raise_for_status()
+
+    def add_clip_effect(self, layer: int, clip: int, effect_name: str):
+        """Add a video effect to a clip by display name.
+
+        Uses the Arena effect URI format: effect:///video/{name}
+        """
+        encoded_name = urllib.parse.quote(effect_name, safe="")
+        uri = f"effect:///video/{encoded_name}"
+        r = requests.post(
+            f"{self.base}/composition/layers/{layer}/clips/{clip}/effects/video/add",
+            data=uri,
+            headers={"Content-Type": "text/plain"},
+            timeout=10,
+        )
+        r.raise_for_status()
+
 
 # ---------------------------------------------------------------------------
-# Core sync logic
+# Layer Snapshots — save/restore full layer state
 # ---------------------------------------------------------------------------
 
-def sync_folder_to_layer(api: ArenaAPI, folder: str, layer: int, dry_run: bool = False) -> list[str]:
-    """Perform one sync cycle: scan folder → clear layer → load clips.
+def snapshot_layer(api: ArenaAPI, layer: int) -> list[dict]:
+    """Capture the full state of all clips on a layer.
 
-    Returns the list of files that were synced.
+    Returns a list of dicts, one per slot:
+        [{"slot": 1, "filename": "logo.mov", "path": "/full/path/logo.mov", "data": {clip JSON}}, ...]
+    Empty slots are included with filename=None.
+    """
+    clips = api.get_layer_clips(layer)
+    snapshot = []
+    for clip in clips:
+        if clip["path"]:
+            snapshot.append({
+                "slot": clip["slot"],
+                "filename": Path(clip["path"]).name,
+                "path": clip["path"],
+                "data": clip["data"],
+            })
+        else:
+            snapshot.append({
+                "slot": clip["slot"],
+                "filename": None,
+                "path": None,
+                "data": None,
+            })
+    return snapshot
+
+
+def merge_snapshots(old_snap: list[dict] | None, new_snap: list[dict]) -> list[dict]:
+    """Merge new snapshot with old, preserving settings for clips no longer on the layer.
+
+    When a clip is removed from a layer, its settings are kept as "remembered"
+    entries so they can be restored if the clip returns later.
+    """
+    if not old_snap:
+        return new_snap
+
+    # Filenames present in the new (current) snapshot
+    new_filenames = {e["filename"] for e in new_snap if e.get("filename")}
+
+    # Start with the new snapshot
+    merged = list(new_snap)
+
+    # Preserve old entries for clips that are no longer on the layer
+    for entry in old_snap:
+        fname = entry.get("filename")
+        if fname and fname not in new_filenames and entry.get("data"):
+            merged.append({
+                "slot": None,
+                "filename": fname,
+                "path": entry.get("path", ""),
+                "data": entry["data"],
+                "remembered": True,
+            })
+
+    return merged
+
+
+def restore_snapshot(api: ArenaAPI, layer: int, snapshot: list[dict],
+                     only_filenames: set[str] | None = None):
+    """Restore clip settings from a snapshot to the current layer state.
+
+    Delegates to restore.py which handles both WebSocket-based (preferred)
+    and REST-based (fallback) effect restoration.
+
+    Args:
+        only_filenames: When provided, only restore clips whose filename
+                        is in this set.  Other clips are left untouched.
+    """
+    from restore import restore_snapshot as _restore
+
+    # Try to set up a WebSocket connection for precise parameter-by-ID restore
+    ws = None
+    try:
+        from arena_ws import ArenaWebSocket
+        ws = ArenaWebSocket(host=api.host, port=api.port, logger=log)
+        if not ws.connect():
+            ws = None
+    except Exception:
+        ws = None
+
+    try:
+        _restore(api, layer, snapshot, ws=ws, logger=log,
+                 only_filenames=only_filenames)
+    finally:
+        if ws:
+            ws.close()
+
+
+# ---------------------------------------------------------------------------
+# Core sync logic — SMART SYNC (incremental, preserves effects)
+# ---------------------------------------------------------------------------
+
+def sync_folder_to_layer(api: ArenaAPI, folder: str, layer: int,
+                         dry_run: bool = False, force_full: bool = False,
+                         snapshot: list[dict] | None = None) -> dict:
+    """Incremental sync: only add/remove changed clips, preserving effects.
+
+    If force_full=True, falls back to the destructive clear-all-and-reload.
+    Returns dict: {files, added, removed, returning}.
+    'returning' lists filenames of newly-added clips that have saved snapshot data.
     """
     files = scan_folder(folder)
 
     if not files:
         log("  No media files found in folder.")
-        return []
+        return {"files": [], "added": [], "removed": [], "returning": []}
 
-    log(f"  Found {len(files)} media file(s):")
-    for f in files:
-        log(f"    • {Path(f).name}")
+    log(f"  Found {len(files)} media file(s)")
 
     if dry_run:
-        log("  [DRY RUN] — no changes made.")
-        return files
+        for f in files:
+            log(f"    . {Path(f).name}")
+        log("  [DRY RUN] -- no changes made.")
+        return {"files": files, "added": [], "removed": [], "returning": []}
 
-    # Step 1: Ensure enough columns
+    # Ensure enough columns
     current_cols = api.get_column_count()
     if len(files) > current_cols:
-        log(f"  Expanding columns: {current_cols} → {len(files)}")
+        log(f"  Expanding columns: {current_cols} -> {len(files)}")
         api.grow_columns(len(files))
-    else:
-        log(f"  Columns OK ({current_cols} available, {len(files)} needed)")
 
-    # Step 2: Clear the target layer
-    layer_name = api.get_layer_name(layer)
-    log(f"  Clearing clips on {layer_name} (index {layer})...")
-    api.clear_layer_clips(layer)
+    # --- Force full (destructive) sync ---
+    if force_full:
+        layer_name = api.get_layer_name(layer)
+        log(f"  Full re-sync: clearing all clips on {layer_name}...")
+        api.clear_layer_clips(layer)
+        pairs = [(i, f) for i, f in enumerate(files, start=1)]
+        log(f"  Loading {len(files)} clip(s)...")
+        api.batch_open_clips(layer, pairs)
+        log("  Sync complete!")
+        return {"files": files, "added": [f for _, f in pairs], "removed": [], "returning": []}
 
-    # Step 3: Load files into clip slots
-    log(f"  Loading {len(files)} clip(s) into layer {layer}...")
-    api.batch_open_clips(layer, files)
+    # --- Smart (incremental) sync ---
+    arena_clips = api.get_layer_clips(layer)
+
+    # Build maps: normalized_path -> slot for current Arena state
+    arena_by_path = {}
+    for clip in arena_clips:
+        np = normalize_path(clip["path"])
+        if np:
+            arena_by_path[np] = clip["slot"]
+
+    # Build desired state: normalized_path -> desired slot (alphabetical)
+    desired_by_path = {}
+    for i, f in enumerate(files, start=1):
+        desired_by_path[normalize_path(f)] = i
+
+    arena_paths = set(arena_by_path.keys())
+    desired_paths = set(desired_by_path.keys())
+
+    to_remove = arena_paths - desired_paths
+    to_add = desired_paths - arena_paths
+    unchanged = arena_paths & desired_paths
+
+    if not to_remove and not to_add:
+        log("  Already in sync -- nothing to do.")
+        return {"files": files, "added": [], "removed": [], "returning": []}
+
+    log(f"  Smart sync: +{len(to_add)} new, -{len(to_remove)} removed, {len(unchanged)} unchanged")
+
+    # Clear removed clips
+    for path in to_remove:
+        slot = arena_by_path[path]
+        log(f"    - Clearing slot {slot}: {Path(path).name}")
+        api.clear_clip(layer, slot)
+
+    # Find available slots for new files
+    freed_slots = sorted([arena_by_path[p] for p in to_remove])
+    empty_slots = sorted([c["slot"] for c in arena_clips if c["path"] is None])
+    available_slots = sorted(set(freed_slots + empty_slots))
+
+    # Assign new files to available slots
+    new_files_sorted = sorted(to_add)
+    load_pairs = []
+    for i, fpath in enumerate(new_files_sorted):
+        if i < len(available_slots):
+            slot = available_slots[i]
+        else:
+            slot = len(arena_clips) + 1 + (i - len(available_slots))
+        log(f"    + Loading slot {slot}: {Path(fpath).name}")
+        load_pairs.append((slot, fpath))
+
+    if load_pairs:
+        api.batch_open_clips(layer, load_pairs)
+
+    # Detect returning clips (new files that have saved snapshot settings)
+    returning = []
+    if snapshot and to_add:
+        snap_filenames = {e["filename"] for e in snapshot if e.get("filename")}
+        for path in sorted(to_add):
+            fname = Path(path).name
+            if fname in snap_filenames:
+                returning.append(fname)
+        if returning:
+            log(f"  {len(returning)} returning clip(s) with saved settings detected")
+
     log("  Sync complete!")
-
-    return files
+    return {
+        "files": files,
+        "added": [p for _, p in load_pairs],
+        "removed": [Path(p).name for p in to_remove],
+        "returning": returning,
+    }
 
 
 # ---------------------------------------------------------------------------
 # Watch mode (continuous)
 # ---------------------------------------------------------------------------
 
-def watch_folder(api: ArenaAPI, folder: str, layer: int, stop_flag=None):
+def watch_folder(api: ArenaAPI, folder: str, layer: int, stop_flag=None,
+                 snapshot_getter=None, snapshot_saver=None):
     """Continuously monitor the folder and re-sync when changes are detected.
 
-    If *stop_flag* is a callable returning True, the loop exits gracefully
-    (used by the web UI). CLI mode relies on KeyboardInterrupt instead.
+    snapshot_getter: optional callable returning the current snapshot for auto-restore.
+    snapshot_saver:  optional callable(snap) to persist a new snapshot after sync.
     """
-    log(f"\n  WATCH MODE — monitoring '{folder}' every {POLL_INTERVAL}s")
+    log(f"\n  WATCH MODE -- monitoring '{folder}' every {POLL_INTERVAL}s")
     if not stop_flag:
         log("  Press Ctrl+C to stop.\n")
 
@@ -304,8 +555,42 @@ def watch_folder(api: ArenaAPI, folder: str, layer: int, stop_flag=None):
     def _should_stop():
         return stop_flag and stop_flag()
 
+    def _sync_and_auto_restore():
+        """Save settings → sync → restore returning → save settings."""
+        # 1) Save current settings before sync (merge to keep removed clips)
+        if snapshot_saver:
+            try:
+                old_snap = snapshot_getter() if snapshot_getter else None
+                pre_snap = snapshot_layer(api, layer)
+                snapshot_saver(merge_snapshots(old_snap, pre_snap))
+                clip_count = sum(1 for e in pre_snap if e["filename"])
+                log(f"  Auto-saved settings before sync ({clip_count} clips)")
+            except Exception:
+                pass
+
+        # 2) Sync (with snapshot for returning-clip detection)
+        snap = snapshot_getter() if snapshot_getter else None
+        result = sync_folder_to_layer(api, folder, layer, snapshot=snap)
+
+        # 3) Auto-restore returning clips (only the ones that were re-added)
+        if result.get("returning") and snap:
+            returning = set(result["returning"])
+            log(f"  Auto-restoring settings for {len(returning)} returning clip(s)...")
+            restore_snapshot(api, layer, snap, only_filenames=returning)
+
+        # 4) Save settings after sync (merge to keep removed clips)
+        if snapshot_saver:
+            try:
+                current_snap = snapshot_getter() if snapshot_getter else None
+                post_snap = snapshot_layer(api, layer)
+                snapshot_saver(merge_snapshots(current_snap, post_snap))
+                log(f"  Auto-saved settings after sync")
+            except Exception:
+                pass
+
+        return result
+
     try:
-        # Try using watchdog for efficient filesystem events
         from watchdog.observers import Observer
         from watchdog.events import FileSystemEventHandler
 
@@ -314,7 +599,6 @@ def watch_folder(api: ArenaAPI, folder: str, layer: int, stop_flag=None):
                 self.changed = False
 
             def on_any_event(self, event):
-                # Only react to media files
                 if event.is_directory:
                     return
                 ext = Path(event.src_path).suffix.lower()
@@ -327,9 +611,8 @@ def watch_folder(api: ArenaAPI, folder: str, layer: int, stop_flag=None):
         observer.start()
         log("  Using watchdog for filesystem events (efficient mode)")
 
-        # Do initial sync
         last_snapshot = set(scan_folder(folder))
-        sync_folder_to_layer(api, folder, layer)
+        _sync_and_auto_restore()
 
         try:
             while not _should_stop():
@@ -345,7 +628,7 @@ def watch_folder(api: ArenaAPI, folder: str, layer: int, stop_flag=None):
                         if removed:
                             log(f"\n  - {len(removed)} file(s) removed")
                         log("  Re-syncing...")
-                        sync_folder_to_layer(api, folder, layer)
+                        _sync_and_auto_restore()
                         last_snapshot = current
         except KeyboardInterrupt:
             pass
@@ -355,13 +638,11 @@ def watch_folder(api: ArenaAPI, folder: str, layer: int, stop_flag=None):
             log("\n  Watch stopped.")
 
     except ImportError:
-        # Fallback: simple polling
-        log("  watchdog not installed — using polling fallback")
+        log("  watchdog not installed -- using polling fallback")
         log("  (Install 'watchdog' for more efficient watching: pip install watchdog)\n")
 
-        # Do initial sync
         last_snapshot = set(scan_folder(folder))
-        sync_folder_to_layer(api, folder, layer)
+        _sync_and_auto_restore()
 
         try:
             while not _should_stop():
@@ -375,7 +656,7 @@ def watch_folder(api: ArenaAPI, folder: str, layer: int, stop_flag=None):
                     if removed:
                         log(f"\n  - {len(removed)} file(s) removed")
                     log("  Re-syncing...")
-                    sync_folder_to_layer(api, folder, layer)
+                    _sync_and_auto_restore()
                     last_snapshot = current
         except KeyboardInterrupt:
             log("\n  Watch stopped.")
@@ -385,116 +666,523 @@ def watch_folder(api: ArenaAPI, folder: str, layer: int, stop_flag=None):
 # Web UI (Flask)
 # ---------------------------------------------------------------------------
 
-def create_web_app():
+def create_web_app(desktop_mode=False):
     """Create and return the Flask application for the web UI."""
+    from config import load_config, save_config
+
     app = Flask(__name__)
 
-    # Shared state for the web UI
+    saved = load_config()
+
+    # Shared state — now supports sets with multiple mappings
     _state = {
         "api": None,
-        "watching": False,
-        "watch_thread": None,
-        "folder": "",
-        "layer": 1,
-        "host": "127.0.0.1",
-        "port": 8080,
+        "host": saved.get("host", "127.0.0.1"),
+        "port": saved.get("port", 8080),
+        "sets": [],
+        "active_set_id": saved.get("active_set_id", "1"),
+        "next_id": 1,
+        "desktop_mode": desktop_mode,
     }
+
+    # Restore sets from config
+    for s in saved.get("sets", []):
+        set_entry = {
+            "id": s["id"],
+            "name": s["name"],
+            "mappings": [],
+            "snapshots": s.get("snapshots", {}),
+        }
+        for m in s.get("mappings", []):
+            set_entry["mappings"].append({
+                "id": m["id"],
+                "folder": m["folder"],
+                "layer": m["layer"],
+                "watching": False,
+                "watch_thread": None,
+            })
+            _state["next_id"] = max(_state["next_id"], int(m["id"]) + 1)
+        _state["next_id"] = max(_state["next_id"], int(s["id"]) + 1)
+        _state["sets"].append(set_entry)
+
+    # Create a default set if none exist
+    if not _state["sets"]:
+        _state["sets"].append({
+            "id": "1",
+            "name": "Default",
+            "mappings": [],
+            "snapshots": {},
+        })
+        _state["next_id"] = 2
+
+    def _next_id():
+        nid = str(_state["next_id"])
+        _state["next_id"] += 1
+        return nid
+
+    def _find_set(set_id):
+        return next((s for s in _state["sets"] if s["id"] == set_id), None)
+
+    def _active_set():
+        return _find_set(_state["active_set_id"])
+
+    def _find_mapping(set_entry, mapping_id):
+        return next((m for m in set_entry["mappings"] if m["id"] == mapping_id), None)
+
+    def _serialize_set(s):
+        return {
+            "id": s["id"],
+            "name": s["name"],
+            "mappings": [
+                {"id": m["id"], "folder": m["folder"], "layer": m["layer"], "watching": m["watching"]}
+                for m in s["mappings"]
+            ],
+            "has_snapshots": bool(s.get("snapshots")),
+        }
+
+    def _save():
+        save_config({
+            "host": _state["host"],
+            "port": _state["port"],
+            "active_set_id": _state["active_set_id"],
+            "sets": [
+                {
+                    "id": s["id"],
+                    "name": s["name"],
+                    "mappings": [
+                        {"id": m["id"], "folder": m["folder"], "layer": m["layer"]}
+                        for m in s["mappings"]
+                    ],
+                    "snapshots": s.get("snapshots", {}),
+                }
+                for s in _state["sets"]
+            ],
+        })
+
+    # --- Routes ---
 
     @app.route("/")
     def index():
         return render_template("index.html")
 
+    @app.route("/api/mode")
+    def mode():
+        return jsonify({"desktop": _state["desktop_mode"]})
+
+    @app.route("/api/browse")
+    def browse_folders():
+        """List directories at a given path for the folder browser."""
+        req_path = flask_request.args.get("path", "")
+        if not req_path:
+            req_path = str(Path.home())
+        p = Path(req_path).resolve()
+        if not p.is_dir():
+            return jsonify({"ok": False, "error": "Not a directory"}), 400
+        dirs = []
+        try:
+            for entry in sorted(p.iterdir()):
+                if entry.is_dir() and not entry.name.startswith("."):
+                    dirs.append(entry.name)
+        except PermissionError:
+            pass
+        # Count media files in this folder
+        media_count = 0
+        try:
+            for entry in p.iterdir():
+                if entry.is_file() and entry.suffix.lower() in MEDIA_EXTENSIONS:
+                    media_count += 1
+        except PermissionError:
+            pass
+        return jsonify({
+            "ok": True,
+            "path": str(p),
+            "parent": str(p.parent) if p != p.parent else None,
+            "dirs": dirs,
+            "media_count": media_count,
+        })
+
     @app.route("/api/connect", methods=["POST"])
     def connect():
-        data = flask_request.json
+        data = flask_request.get_json(silent=True) or {}
         host = data.get("host", "127.0.0.1")
         port = int(data.get("port", 8080))
         try:
             _state["api"] = ArenaAPI(host=host, port=port)
             _state["host"] = host
             _state["port"] = port
+            _save()
             return jsonify({"ok": True})
         except ArenaConnectionError as e:
             _state["api"] = None
             log(f"  ERROR: {e}")
             return jsonify({"ok": False, "error": str(e)}), 400
 
-    @app.route("/api/scan", methods=["POST"])
-    def scan():
-        data = flask_request.json
-        folder = data.get("folder", "")
-        try:
-            files = scan_folder(folder)
-            return jsonify({"ok": True, "files": [Path(f).name for f in files], "count": len(files)})
-        except ValueError as e:
-            return jsonify({"ok": False, "error": str(e)}), 400
+    @app.route("/api/status")
+    def status():
+        active = _active_set()
+        return jsonify({
+            "connected": _state["api"] is not None,
+            "host": _state["host"],
+            "port": _state["port"],
+            "active_set_id": _state["active_set_id"],
+            "sets": [_serialize_set(s) for s in _state["sets"]],
+        })
 
-    @app.route("/api/sync", methods=["POST"])
-    def sync():
-        data = flask_request.json
-        folder = data.get("folder", "")
-        layer = int(data.get("layer", 1))
+    # --- Sets CRUD ---
+
+    @app.route("/api/sets", methods=["POST"])
+    def create_set():
+        data = flask_request.get_json(silent=True) or {}
+        new_set = {
+            "id": _next_id(),
+            "name": data.get("name", "New Set"),
+            "mappings": [],
+            "snapshots": {},
+        }
+        _state["sets"].append(new_set)
+        _save()
+        return jsonify({"ok": True, "set": _serialize_set(new_set)})
+
+    @app.route("/api/sets/<set_id>", methods=["PUT"])
+    def update_set(set_id):
+        s = _find_set(set_id)
+        if not s:
+            return jsonify({"ok": False, "error": "Set not found"}), 404
+        data = flask_request.get_json(silent=True) or {}
+        if "name" in data:
+            s["name"] = data["name"]
+        _save()
+        return jsonify({"ok": True, "set": _serialize_set(s)})
+
+    @app.route("/api/sets/<set_id>", methods=["DELETE"])
+    def delete_set(set_id):
+        s = _find_set(set_id)
+        if not s:
+            return jsonify({"ok": False, "error": "Set not found"}), 404
+        # Stop all watchers in this set
+        for m in s["mappings"]:
+            m["watching"] = False
+        _state["sets"].remove(s)
+        # If we deleted the active set, switch to first available
+        if _state["active_set_id"] == set_id and _state["sets"]:
+            _state["active_set_id"] = _state["sets"][0]["id"]
+        _save()
+        return jsonify({"ok": True})
+
+    @app.route("/api/sets/<set_id>/activate", methods=["POST"])
+    def activate_set(set_id):
+        new_set = _find_set(set_id)
+        if not new_set:
+            return jsonify({"ok": False, "error": "Set not found"}), 404
         if not _state["api"]:
             return jsonify({"ok": False, "error": "Not connected to Arena"}), 400
+
+        old_set = _active_set()
+
+        # Stop all watchers in old set
+        if old_set:
+            for m in old_set["mappings"]:
+                m["watching"] = False
+
+        # Snapshot current layer states into old set
+        if old_set and _state["api"]:
+            log(f"  Saving snapshots for '{old_set['name']}'...")
+            for m in old_set["mappings"]:
+                try:
+                    snap = snapshot_layer(_state["api"], m["layer"])
+                    old_set["snapshots"][str(m["layer"])] = snap
+                    log(f"    Layer {m['layer']}: {sum(1 for s in snap if s['filename'])} clips saved")
+                except Exception as e:
+                    log(f"    Warning: could not snapshot layer {m['layer']}: {e}")
+
+        # Switch to new set
+        _state["active_set_id"] = set_id
+        log(f"\n  Switching to set '{new_set['name']}'")
+
+        # Sync all mappings in the new set
+        for m in new_set["mappings"]:
+            if m["folder"]:
+                try:
+                    log(f"  Syncing layer {m['layer']} <- {m['folder']}")
+                    sync_folder_to_layer(_state["api"], m["folder"], m["layer"])
+
+                    # Restore snapshot if available
+                    layer_snap = new_set["snapshots"].get(str(m["layer"]))
+                    if layer_snap:
+                        log(f"  Restoring settings for layer {m['layer']}...")
+                        restore_snapshot(_state["api"], m["layer"], layer_snap)
+                except Exception as e:
+                    log(f"  ERROR syncing layer {m['layer']}: {e}")
+
+        _save()
+        log("  Set switch complete!")
+        return jsonify({"ok": True})
+
+    # --- Mappings CRUD (within active set) ---
+
+    @app.route("/api/mappings", methods=["POST"])
+    def add_mapping():
+        s = _active_set()
+        if not s:
+            return jsonify({"ok": False, "error": "No active set"}), 400
+        data = flask_request.get_json(silent=True) or {}
+        mapping = {
+            "id": _next_id(),
+            "folder": data.get("folder", ""),
+            "layer": int(data.get("layer", 1)),
+            "watching": False,
+            "watch_thread": None,
+        }
+        s["mappings"].append(mapping)
+        _save()
+        return jsonify({"ok": True, "mapping": {
+            "id": mapping["id"], "folder": mapping["folder"],
+            "layer": mapping["layer"], "watching": False,
+        }})
+
+    @app.route("/api/mappings/<mapping_id>", methods=["PUT"])
+    def update_mapping(mapping_id):
+        s = _active_set()
+        if not s:
+            return jsonify({"ok": False, "error": "No active set"}), 400
+        m = _find_mapping(s, mapping_id)
+        if not m:
+            return jsonify({"ok": False, "error": "Mapping not found"}), 404
+        data = flask_request.get_json(silent=True) or {}
+        if "folder" in data:
+            m["folder"] = data["folder"]
+        if "layer" in data:
+            m["layer"] = int(data["layer"])
+        _save()
+        return jsonify({"ok": True})
+
+    @app.route("/api/mappings/<mapping_id>", methods=["DELETE"])
+    def delete_mapping(mapping_id):
+        s = _active_set()
+        if not s:
+            return jsonify({"ok": False, "error": "No active set"}), 400
+        m = _find_mapping(s, mapping_id)
+        if not m:
+            return jsonify({"ok": False, "error": "Mapping not found"}), 404
+        m["watching"] = False
+        s["mappings"].remove(m)
+        _save()
+        return jsonify({"ok": True})
+
+    @app.route("/api/mappings/<mapping_id>/sync", methods=["POST"])
+    def sync_mapping(mapping_id):
+        s = _active_set()
+        if not s:
+            return jsonify({"ok": False, "error": "No active set"}), 400
+        m = _find_mapping(s, mapping_id)
+        if not m:
+            return jsonify({"ok": False, "error": "Mapping not found"}), 404
+        if not _state["api"]:
+            return jsonify({"ok": False, "error": "Not connected to Arena"}), 400
+        data = flask_request.get_json(silent=True) or {}
+        force = data.get("force", False)
+        layer_key = str(m["layer"])
         try:
-            files = sync_folder_to_layer(_state["api"], folder, layer)
-            return jsonify({"ok": True, "files": [Path(f).name for f in files]})
-        except (ValueError, ArenaConnectionError) as e:
-            log(f"  ERROR: {e}")
-            return jsonify({"ok": False, "error": str(e)}), 500
+            old_snap = s["snapshots"].get(layer_key)
+
+            # 1) Save current settings BEFORE sync (merge to keep removed clips)
+            try:
+                pre_snap = snapshot_layer(_state["api"], m["layer"])
+                s["snapshots"][layer_key] = merge_snapshots(old_snap, pre_snap)
+                clip_count = sum(1 for e in pre_snap if e["filename"])
+                log(f"  Auto-saved settings before sync ({clip_count} clips)")
+            except Exception:
+                pass  # don't block sync if snapshot fails
+
+            layer_snap = s["snapshots"].get(layer_key)
+
+            # 2) Sync
+            result = sync_folder_to_layer(
+                _state["api"], m["folder"], m["layer"],
+                force_full=force, snapshot=layer_snap,
+            )
+
+            returning = result.get("returning", [])
+
+            if returning:
+                # Returning clips detected — DON'T save yet!
+                # The remembered settings are still in the snapshot.
+                # Let the user choose: Restore or Keep Fresh.
+                _save()
+                return jsonify({"ok": True, "returning": returning})
+
+            # 3) No returning clips — save settings after sync
+            try:
+                post_snap = snapshot_layer(_state["api"], m["layer"])
+                s["snapshots"][layer_key] = merge_snapshots(
+                    s["snapshots"].get(layer_key), post_snap,
+                )
+                log(f"  Auto-saved settings after sync")
+            except Exception:
+                pass
+
+            _save()
+            return jsonify({"ok": True, "returning": []})
         except Exception as e:
             log(f"  ERROR: {e}")
             return jsonify({"ok": False, "error": str(e)}), 500
 
-    @app.route("/api/watch/start", methods=["POST"])
-    def watch_start():
-        data = flask_request.json
-        folder = data.get("folder", "")
-        layer = int(data.get("layer", 1))
+    @app.route("/api/mappings/<mapping_id>/watch/start", methods=["POST"])
+    def watch_start(mapping_id):
+        s = _active_set()
+        if not s:
+            return jsonify({"ok": False, "error": "No active set"}), 400
+        m = _find_mapping(s, mapping_id)
+        if not m:
+            return jsonify({"ok": False, "error": "Mapping not found"}), 404
         if not _state["api"]:
             return jsonify({"ok": False, "error": "Not connected to Arena"}), 400
-        if _state["watching"]:
+        if m["watching"]:
             return jsonify({"ok": False, "error": "Already watching"}), 400
 
-        _state["watching"] = True
-        _state["folder"] = folder
-        _state["layer"] = layer
+        m["watching"] = True
+
+        layer_key = str(m["layer"])
+
+        def _save_snap(snap):
+            s["snapshots"][layer_key] = snap
+            _save()
 
         def run_watch():
             try:
-                watch_folder(_state["api"], folder, layer,
-                             stop_flag=lambda: not _state["watching"])
+                watch_folder(
+                    _state["api"], m["folder"], m["layer"],
+                    stop_flag=lambda: not m["watching"],
+                    snapshot_getter=lambda: s["snapshots"].get(layer_key),
+                    snapshot_saver=_save_snap,
+                )
             except Exception as e:
-                log(f"  Watch error: {e}")
+                log(f"  Watch error on layer {m['layer']}: {e}")
             finally:
-                _state["watching"] = False
+                m["watching"] = False
 
         t = threading.Thread(target=run_watch, daemon=True)
         t.start()
-        _state["watch_thread"] = t
+        m["watch_thread"] = t
         return jsonify({"ok": True})
 
-    @app.route("/api/watch/stop", methods=["POST"])
-    def watch_stop():
-        _state["watching"] = False
-        log("  Stopping watch mode...")
+    @app.route("/api/mappings/<mapping_id>/watch/stop", methods=["POST"])
+    def watch_stop(mapping_id):
+        s = _active_set()
+        if not s:
+            return jsonify({"ok": False, "error": "No active set"}), 400
+        m = _find_mapping(s, mapping_id)
+        if not m:
+            return jsonify({"ok": False, "error": "Mapping not found"}), 404
+        m["watching"] = False
+        log(f"  Stopping watch on layer {m['layer']}...")
         return jsonify({"ok": True})
 
-    @app.route("/api/status")
-    def status():
-        return jsonify({
-            "connected": _state["api"] is not None,
-            "watching": _state["watching"],
-            "folder": _state["folder"],
-            "layer": _state["layer"],
-        })
+    @app.route("/api/mappings/<mapping_id>/snapshot", methods=["POST"])
+    def snapshot_mapping(mapping_id):
+        """Manually snapshot a single layer."""
+        s = _active_set()
+        if not s:
+            return jsonify({"ok": False, "error": "No active set"}), 400
+        m = _find_mapping(s, mapping_id)
+        if not m:
+            return jsonify({"ok": False, "error": "Mapping not found"}), 404
+        if not _state["api"]:
+            return jsonify({"ok": False, "error": "Not connected to Arena"}), 400
+        try:
+            layer_key = str(m["layer"])
+            old_snap = s["snapshots"].get(layer_key)
+            new_snap = snapshot_layer(_state["api"], m["layer"])
+            s["snapshots"][layer_key] = merge_snapshots(old_snap, new_snap)
+            clip_count = sum(1 for e in new_snap if e["filename"])
+            log(f"  Layer {m['layer']}: snapshot saved ({clip_count} clips)")
+            _save()
+            return jsonify({"ok": True, "clips": clip_count})
+        except Exception as e:
+            log(f"  ERROR: {e}")
+            return jsonify({"ok": False, "error": str(e)}), 500
+
+    @app.route("/api/mappings/<mapping_id>/restore", methods=["POST"])
+    def restore_mapping(mapping_id):
+        """Restore a layer from its snapshot.
+
+        Accepts optional JSON body:
+            {"only": ["file1.mov", "file2.mov"]}
+        to restrict restoration to specific clips (e.g. returning clips).
+        Without "only", restores all clips on the layer.
+        """
+        s = _active_set()
+        if not s:
+            return jsonify({"ok": False, "error": "No active set"}), 400
+        m = _find_mapping(s, mapping_id)
+        if not m:
+            return jsonify({"ok": False, "error": "Mapping not found"}), 404
+        if not _state["api"]:
+            return jsonify({"ok": False, "error": "Not connected to Arena"}), 400
+
+        layer_snap = s["snapshots"].get(str(m["layer"]))
+        if not layer_snap:
+            return jsonify({"ok": False, "error": "No snapshot for this layer"}), 404
+        try:
+            layer_key = str(m["layer"])
+            data = flask_request.get_json(silent=True) or {}
+            only = data.get("only")
+            only_filenames = set(only) if only else None
+            if only_filenames:
+                log(f"  Restoring settings for {len(only_filenames)} returning clip(s) on layer {m['layer']}...")
+            else:
+                log(f"  Restoring settings for layer {m['layer']}...")
+            restore_snapshot(_state["api"], m["layer"], layer_snap,
+                             only_filenames=only_filenames)
+
+            # Save after restore to capture the restored state
+            try:
+                post_snap = snapshot_layer(_state["api"], m["layer"])
+                s["snapshots"][layer_key] = merge_snapshots(
+                    s["snapshots"].get(layer_key), post_snap,
+                )
+                _save()
+                log(f"  Settings saved after restore")
+            except Exception:
+                pass
+
+            return jsonify({"ok": True})
+        except Exception as e:
+            log(f"  ERROR: {e}")
+            return jsonify({"ok": False, "error": str(e)}), 500
+
+    @app.route("/api/mappings/<mapping_id>/keep-fresh", methods=["POST"])
+    def keep_fresh(mapping_id):
+        """User chose 'Keep Fresh' for returning clips — save current (fresh) state."""
+        s = _active_set()
+        if not s:
+            return jsonify({"ok": False, "error": "No active set"}), 400
+        m = _find_mapping(s, mapping_id)
+        if not m:
+            return jsonify({"ok": False, "error": "Mapping not found"}), 404
+        if not _state["api"]:
+            return jsonify({"ok": False, "error": "Not connected to Arena"}), 400
+        try:
+            layer_key = str(m["layer"])
+            post_snap = snapshot_layer(_state["api"], m["layer"])
+            s["snapshots"][layer_key] = merge_snapshots(
+                s["snapshots"].get(layer_key), post_snap,
+            )
+            log(f"  Keeping fresh settings for returning clips")
+            _save()
+            return jsonify({"ok": True})
+        except Exception as e:
+            log(f"  ERROR: {e}")
+            return jsonify({"ok": False, "error": str(e)}), 500
 
     @app.route("/api/shutdown", methods=["POST"])
     def shutdown():
         """Shut down the Flask server gracefully."""
         log("  Server shutdown requested from web UI.")
-        # Stop watch mode if running
-        _state["watching"] = False
+        # Stop all watchers
+        for s in _state["sets"]:
+            for m in s["mappings"]:
+                m["watching"] = False
         # Schedule shutdown after response is sent
         def do_shutdown():
             time.sleep(0.5)
@@ -504,7 +1192,7 @@ def create_web_app():
 
     @app.route("/api/logs")
     def logs_stream():
-        """SSE endpoint — streams log messages to the browser."""
+        """SSE endpoint -- streams log messages to the browser."""
         def generate():
             q = log_manager.subscribe()
             try:
@@ -530,7 +1218,7 @@ def create_web_app():
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Resolume Arena Watch Folder — sync a folder of media to a layer",
+        description="Resolume Arena Watch Folder -- sync folders of media to layers",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Examples:
@@ -538,6 +1226,7 @@ Examples:
   %(prog)s --folder "C:\\Users\\VJ\\Clips" --layer 1 --watch
   %(prog)s --folder /media/show --layer 3 --host 192.168.1.100 --port 8080 --watch
   %(prog)s --ui
+  %(prog)s --desktop
         """,
     )
     parser.add_argument(
@@ -583,8 +1272,28 @@ Examples:
         default=5000,
         help="Port for the web UI (default: 5000)",
     )
+    parser.add_argument(
+        "--desktop",
+        action="store_true",
+        help="Launch as desktop app with native window and system tray",
+    )
 
     args = parser.parse_args()
+
+    # --- Desktop mode ---
+    if args.desktop:
+        if not HAS_FLASK:
+            print("ERROR: Flask is required for --desktop mode. Install it with:\n  pip install flask")
+            sys.exit(1)
+        try:
+            from desktop import main as desktop_main
+            desktop_main()
+        except ImportError as e:
+            print(f"ERROR: Desktop mode requires pywebview and pystray. Install with:")
+            print(f"  pip install pywebview pystray Pillow")
+            print(f"  (Error: {e})")
+            sys.exit(1)
+        return
 
     # --- Web UI mode ---
     if args.ui:
@@ -593,25 +1302,25 @@ Examples:
             sys.exit(1)
         app = create_web_app()
         print()
-        print("╔══════════════════════════════════════════════╗")
-        print("║   Resolume Arena — Watch Folder Sync (UI)    ║")
-        print("╚══════════════════════════════════════════════╝")
+        print("+" + "=" * 48 + "+")
+        print("|   Resolume Arena -- Watch Folder Sync (UI)     |")
+        print("+" + "=" * 48 + "+")
         print()
-        print(f"  Web UI → http://127.0.0.1:{args.ui_port}")
+        print(f"  Web UI -> http://127.0.0.1:{args.ui_port}")
         print()
         app.run(host="0.0.0.0", port=args.ui_port, debug=False, threaded=True)
         return
 
     # --- CLI mode (original behavior) ---
     if not args.folder:
-        parser.error("--folder is required (unless using --ui)")
+        parser.error("--folder is required (unless using --ui or --desktop)")
     if args.layer is None:
-        parser.error("--layer is required (unless using --ui)")
+        parser.error("--layer is required (unless using --ui or --desktop)")
 
     print()
-    print("╔══════════════════════════════════════════════╗")
-    print("║   Resolume Arena — Watch Folder Sync         ║")
-    print("╚══════════════════════════════════════════════╝")
+    print("+" + "=" * 48 + "+")
+    print("|   Resolume Arena -- Watch Folder Sync            |")
+    print("+" + "=" * 48 + "+")
     print()
     print(f"  Folder : {Path(args.folder).resolve()}")
     print(f"  Layer  : {args.layer}")
@@ -620,7 +1329,7 @@ Examples:
     print()
 
     if args.dry_run:
-        print("  *** DRY RUN MODE — no changes will be made ***\n")
+        print("  *** DRY RUN MODE -- no changes will be made ***\n")
         try:
             files = scan_folder(args.folder)
         except ValueError as e:
@@ -628,7 +1337,7 @@ Examples:
             sys.exit(1)
         print(f"  Found {len(files)} media file(s):")
         for f in files:
-            print(f"    • {Path(f).name}")
+            print(f"    . {Path(f).name}")
         return
 
     try:
