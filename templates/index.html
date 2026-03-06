@@ -309,15 +309,26 @@
     <h3>Watch mode</h3>
     <p>Click <strong>Start Watch</strong> on a mapping to continuously monitor the folder. When you add or remove files, the layer updates automatically. The orange border and pulsing dot indicate active watching.</p>
 
+    <h3>Collect from Arena</h3>
+    <p>Use <strong>Collect</strong> to copy an Arena layer's clip files into your local folder, creating a local backup of your show. You can also use <strong>Collect All</strong> at the top to collect every layer at once into organized subfolders.</p>
+    <ul>
+      <li><strong>Collect</strong> (per mapping) &mdash; Copies clip files from the mapped Arena layer into the mapping's folder. Generated sources (Checkered, Lines, etc.) have no files to copy but are captured in the snapshot.</li>
+      <li><strong>Collect All</strong> &mdash; Scans all Arena layers and copies clips into <code>&lt;dest&gt;/&lt;composition&gt;/&lt;deck&gt;/&lt;layer&gt;/</code> subfolders, creating a mapping for each layer.</li>
+    </ul>
+
+    <h3>Generated sources</h3>
+    <p>Arena's built-in content generators (Solid Color, Checkered, Lines, Abstract Field, Gradient, etc.) are fully supported. When you collect or save settings, generated sources are captured with all their parameters &mdash; colors, density, grid size, rotation, etc.</p>
+    <p>When you <strong>Force Sync</strong> to a different layer, generated sources are automatically re-created in their original slots and their settings are restored. This means you can reorganise generators across layers just like regular video clips.</p>
+
     <h3>Save &amp; Restore settings</h3>
     <ul>
-      <li><strong>Save All Settings</strong> &mdash; Takes a snapshot of all clip settings across every mapping at once: effects and their parameters, transform, speed, direction, cue points, blend modes, and more. Saving all layers together keeps everything in sync.</li>
-      <li><strong>Restore Settings</strong> &mdash; Applies the last saved snapshot back to the clips on a specific layer. Clips are matched by filename, so if a clip returns after being removed, its settings come back too.</li>
+      <li><strong>Save All Settings</strong> &mdash; Takes a snapshot of all clip settings across every mapping at once: effects and their parameters, transform, speed, direction, cue points, blend modes, and more. Also captures generated source parameters. Saving all layers together keeps everything in sync.</li>
+      <li><strong>Restore Settings</strong> &mdash; Applies the last saved snapshot back to the clips on a specific layer. Clips are matched by filename, generated sources by slot position. If a clip returns after being removed, its settings come back too.</li>
     </ul>
     <p>Settings are also saved/restored automatically when switching sets.</p>
 
     <h3>What gets saved</h3>
-    <p>Effects (Blur, Color Balance, etc.) with all parameter values, Transform (position, scale, rotation), speed &amp; direction, cue points (in/out), play mode (autopilot), beat loop, opacity, resize mode, audio (volume, pan), clip name, trigger style, transition, dashboard knobs, and more.</p>
+    <p>Effects (Blur, Color Balance, etc.) with all parameter values, Transform (position, scale, rotation), speed &amp; direction, cue points (in/out), play mode (autopilot), beat loop, opacity, resize mode, audio (volume, pan), clip name, trigger style, transition, dashboard knobs, <strong>source parameters</strong> (colors, density, grid size for generated sources), and more.</p>
 
     <h3>What is NOT saved</h3>
     <ul>
@@ -327,7 +338,14 @@
       <li><strong>Layer-level settings</strong> &mdash; layer effects, blend mode, opacity, and transitions are not captured (snapshots are per-clip only)</li>
       <li><strong>Composition settings</strong> &mdash; output resolution, FPS, etc. are not affected</li>
     </ul>
-    <p><em>In short: everything you set on a <strong>clip</strong> is saved. Everything set on the <strong>layer</strong> or <strong>composition</strong> is not.</em></p>
+    <p><em>In short: everything you set on a <strong>clip</strong> is saved &mdash; including generated sources with their parameters. Everything set on the <strong>layer</strong> or <strong>composition</strong> is not.</em></p>
+
+    <h3>Composition &amp; Deck lock</h3>
+    <p>Use these options to prevent accidental syncs to the wrong show:</p>
+    <ul>
+      <li><strong>Lock composition</strong> &mdash; Syncs are blocked if Arena has a different <code>.avc</code> file loaded.</li>
+      <li><strong>Lock deck</strong> &mdash; Syncs are blocked if a different deck is active. If the locked deck no longer exists (e.g. you opened a new composition), the lock auto-clears.</li>
+    </ul>
 
     <h3>Shutting down</h3>
     <p><strong>Always quit the app when you're done.</strong> If you leave it running in the background (especially in watch mode), it will keep syncing files to Arena. This can cause problems if you open a different composition, because the app may still be pushing clips to the old layer mappings.</p>
@@ -339,6 +357,7 @@
       <li>Use the <strong>&#9998; edit</strong> button on a mapping to change its folder path or layer number.</li>
       <li>The <strong>Sync All</strong> button (top right of the mappings card) syncs every mapping in the current set at once.</li>
       <li>When clips return to a layer after re-syncing, you'll be asked whether to restore their previous settings or keep them fresh.</li>
+      <li>Generated sources survive the full <strong>Collect &rarr; Force Sync &rarr; Restore</strong> round-trip, including custom colors, grid sizes, and effects.</li>
       <li><strong>Always use local folders</strong> for your media &mdash; never point mappings directly at a network share. If you collaborate remotely, use a synced folder (Dropbox, Google Drive) so files land on your local drive first.</li>
     </ul>
   </div>
@@ -424,7 +443,7 @@
             </select>
             <button class="small secondary" onclick="loadDecks()" title="Refresh deck list">↻</button>
           </div>
-          <div class="help-text" style="margin-top:2px;">Syncs are blocked if Arena has a different deck selected. Leave on "Any deck" to allow syncing regardless of the active deck.</div>
+          <div class="help-text" style="margin-top:2px;">Syncs are blocked if Arena has a different deck selected. Leave on "Any deck" to allow syncing regardless of the active deck. If the locked deck no longer exists (e.g. new composition), the lock auto-clears.</div>
         </div>
       </div>
       <div id="deck-lock-status" style="font-size:12px;color:#888;"></div>
@@ -459,8 +478,8 @@
       <span>Save &amp; Restore</span>
     </div>
     <div style="display:flex;align-items:center;gap:12px;">
-      <button onclick="snapshotAll(this)" id="btn-snapshot-all" title="Save a snapshot of all clip settings across every mapping — effects, transform, speed, cue points, blend modes">Save All Settings</button>
-      <span class="help-text" style="margin:0;">Saves effects, transform, speed, cue points, blend modes and more for all clips across all mappings at once.</span>
+      <button onclick="snapshotAll(this)" id="btn-snapshot-all" title="Save a snapshot of all clip settings across every mapping — effects, transform, speed, cue points, blend modes, and generated source parameters (colors, density, etc.)">Save All Settings</button>
+      <span class="help-text" style="margin:0;">Saves effects, transform, speed, cue points, blend modes, generated source parameters and more for all clips across all mappings at once.</span>
     </div>
   </div>
 
@@ -469,11 +488,11 @@
     <div class="card-title">
       <span>Collect from Arena</span>
     </div>
-    <div class="help-text" style="margin-top:0;margin-bottom:8px;">Scans all Arena layers and copies clip files into organized folders. Creates <code>&lt;dest&gt;/&lt;composition&gt;/&lt;deck&gt;/&lt;layer&gt;/</code> with a mapping per layer.</div>
+    <div class="help-text" style="margin-top:0;margin-bottom:8px;">Scans all Arena layers and copies clip files into organized folders. Creates <code>&lt;dest&gt;/&lt;composition&gt;/&lt;deck&gt;/&lt;layer&gt;/</code> with a mapping per layer. Generated sources (Checkered, Lines, etc.) are saved in the snapshot.</div>
     <div style="display:flex;gap:6px;align-items:center;">
       <input type="text" id="collect-destination" placeholder="/path/to/destination" style="flex:1;font-size:13px;">
       <button class="small secondary" onclick="openBrowser('collect-destination')">Browse</button>
-      <button onclick="collectAll(this)" id="btn-collect-all" title="Copy all clip files from Arena into organized folders">Collect All</button>
+      <button onclick="collectAll(this)" id="btn-collect-all" title="Copy all clip files from Arena into organized folders. Generated sources (Checkered, Lines, etc.) are captured in snapshots but have no files to copy.">Collect All</button>
     </div>
   </div>
 
@@ -1015,13 +1034,13 @@
         </div>
         <div class="mapping-actions">
           <button class="small" onclick="syncMapping('${m.id}', this)" ${!connected ? 'disabled' : ''} title="Sync this folder to its Arena layer — adds new files, removes deleted ones, keeps existing clips untouched">Sync Now</button>
-          <button class="small" style="background:#8B5E3C;" onclick="forceSyncMapping('${m.id}', this)" ${!connected ? 'disabled' : ''} title="Clear ALL clips from this layer and reload from the folder — use after Collect to re-link Arena to the new file paths">Force Sync</button>
+          <button class="small" style="background:#8B5E3C;" onclick="forceSyncMapping('${m.id}', this)" ${!connected ? 'disabled' : ''} title="Clear ALL clips from this layer and reload everything from scratch. Restores generated sources and all saved settings. Use after Collect to re-link Arena to the new file paths.">Force Sync</button>
           ${!w
             ? `<button class="small success" onclick="startWatch('${m.id}')" ${!connected ? 'disabled' : ''} title="Continuously monitor this folder and auto-sync when files change">Start Watch</button>`
             : `<button class="small danger" onclick="stopWatch('${m.id}')" title="Stop monitoring this folder">Stop Watch</button>`
           }
           <button class="small secondary" onclick="restoreMapping('${m.id}')" ${!connected ? 'disabled' : ''} title="Restore clip settings from the last snapshot — clips are matched by filename">Restore Settings</button>
-          <button class="small secondary" onclick="collectMapping('${m.id}', this)" ${!connected ? 'disabled' : ''} title="Copy clip files from Arena into this mapping's folder">Collect</button>
+          <button class="small secondary" onclick="collectMapping('${m.id}', this)" ${!connected ? 'disabled' : ''} title="Copy clip files from Arena into this mapping's folder. Generated sources are captured in the snapshot (no files to copy, but their settings are saved).">Collect</button>
         </div>
       `;
       list.appendChild(card);
