@@ -30,6 +30,7 @@ import json
 import os
 import platform
 import queue
+import shutil
 import sys
 import threading
 import time
@@ -144,6 +145,13 @@ def normalize_path(p):
     return str(Path(p).resolve())
 
 
+def _sanitize_dirname(name: str) -> str:
+    """Sanitize a string for use as a directory name."""
+    for ch in r'<>:"/\|?*':
+        name = name.replace(ch, "_")
+    return name.strip(". ") or "Untitled"
+
+
 def scan_folder(folder: str) -> list[str]:
     """Return sorted list of absolute paths to media files in *folder*."""
     folder_path = Path(folder).resolve()
@@ -201,6 +209,12 @@ class ArenaAPI:
         info = self.get_composition_info()
         columns = info.get("columns", [])
         return len(columns) if isinstance(columns, list) else 0
+
+    def get_layer_count(self) -> int:
+        """Get the number of layers in the composition."""
+        info = self.get_composition_info()
+        layers = info.get("layers", [])
+        return len(layers) if isinstance(layers, list) else 0
 
     def grow_columns(self, needed: int):
         """Ensure the composition has at least *needed* columns.
@@ -294,6 +308,17 @@ class ArenaAPI:
         )
         r.raise_for_status()
 
+    def open_clip_source(self, layer: int, clip: int, source_name: str):
+        """Load a generated source into a specific clip slot on a layer."""
+        uri = f"source:///video/{urllib.parse.quote(source_name)}"
+        r = requests.post(
+            f"{self.base}/composition/layers/{layer}/clips/{clip}/open",
+            data=uri,
+            headers={"Content-Type": "text/plain"},
+            timeout=30,
+        )
+        r.raise_for_status()
+
     def batch_open_clips(self, layer: int, slot_file_pairs: list[tuple[int, str]]):
         """Load files into specific clip slots using the batch endpoint.
 
@@ -325,7 +350,11 @@ class ArenaAPI:
             r.raise_for_status()
             data = r.json()
             name_param = data.get("name", {})
-            return name_param.get("value", f"Layer {layer}")
+            name = name_param.get("value", f"Layer {layer}")
+            # Arena uses "Layer #" for unnamed layers — replace # with number
+            if name == "Layer #":
+                name = f"Layer {layer}"
+            return name
         except Exception:
             return f"Layer {layer}"
 
@@ -407,12 +436,23 @@ class ArenaAPI:
 # Layer Snapshots — save/restore full layer state
 # ---------------------------------------------------------------------------
 
+def _extract_clip_name(clip_data: dict) -> str:
+    """Extract the display name from a clip's JSON data."""
+    name = clip_data.get("name")
+    if isinstance(name, str):
+        return name
+    if isinstance(name, dict):
+        return name.get("value", "")
+    return ""
+
+
 def snapshot_layer(api: ArenaAPI, layer: int) -> list[dict]:
     """Capture the full state of all clips on a layer.
 
     Returns a list of dicts, one per slot:
         [{"slot": 1, "filename": "logo.mov", "path": "/full/path/logo.mov", "data": {clip JSON}}, ...]
     Empty slots are included with filename=None.
+    Generated sources (no file path but connected) are stored with source_name.
     """
     clips = api.get_layer_clips(layer)
     snapshot = []
@@ -422,6 +462,16 @@ def snapshot_layer(api: ArenaAPI, layer: int) -> list[dict]:
                 "slot": clip["slot"],
                 "filename": Path(clip["path"]).name,
                 "path": clip["path"],
+                "data": clip["data"],
+            })
+        elif clip["data"]:
+            # Generated source — no file but has clip data
+            source_name = _extract_clip_name(clip["data"])
+            snapshot.append({
+                "slot": clip["slot"],
+                "filename": None,
+                "source_name": source_name or "Unknown Source",
+                "path": None,
                 "data": clip["data"],
             })
         else:
@@ -439,6 +489,8 @@ def merge_snapshots(old_snap: list[dict] | None, new_snap: list[dict]) -> list[d
 
     When a clip is removed from a layer, its settings are kept as "remembered"
     entries so they can be restored if the clip returns later.
+    Handles both file-based clips (keyed by filename) and generated sources
+    (keyed by source_name + slot).
     """
     if not old_snap:
         return new_snap
@@ -446,17 +498,33 @@ def merge_snapshots(old_snap: list[dict] | None, new_snap: list[dict]) -> list[d
     # Filenames present in the new (current) snapshot
     new_filenames = {e["filename"] for e in new_snap if e.get("filename")}
 
+    # Source entries present in the new snapshot (keyed by source_name + slot)
+    new_sources = {
+        (e.get("source_name"), e.get("slot"))
+        for e in new_snap if e.get("source_name")
+    }
+
     # Start with the new snapshot
     merged = list(new_snap)
 
     # Preserve old entries for clips that are no longer on the layer
     for entry in old_snap:
         fname = entry.get("filename")
+        sname = entry.get("source_name")
         if fname and fname not in new_filenames and entry.get("data"):
             merged.append({
                 "slot": None,
                 "filename": fname,
                 "path": entry.get("path", ""),
+                "data": entry["data"],
+                "remembered": True,
+            })
+        elif sname and (sname, entry.get("slot")) not in new_sources and entry.get("data"):
+            merged.append({
+                "slot": entry.get("slot"),
+                "filename": None,
+                "source_name": sname,
+                "path": None,
                 "data": entry["data"],
                 "remembered": True,
             })
@@ -580,7 +648,8 @@ def merge_with_combined(config_snap: list[dict] | None,
 
 
 def restore_snapshot(api: ArenaAPI, layer: int, snapshot: list[dict],
-                     only_filenames: set[str] | None = None):
+                     only_filenames: set[str] | None = None,
+                     include_remembered: bool = False):
     """Restore clip settings from a snapshot to the current layer state.
 
     Delegates to restore.py which handles both WebSocket-based (preferred)
@@ -589,6 +658,8 @@ def restore_snapshot(api: ArenaAPI, layer: int, snapshot: list[dict],
     Args:
         only_filenames: When provided, only restore clips whose filename
                         is in this set.  Other clips are left untouched.
+        include_remembered: When True, also restore generated sources marked
+                        as remembered (used during force sync).
     """
     from restore import restore_snapshot as _restore
 
@@ -604,7 +675,8 @@ def restore_snapshot(api: ArenaAPI, layer: int, snapshot: list[dict],
 
     try:
         _restore(api, layer, snapshot, ws=ws, logger=log,
-                 only_filenames=only_filenames)
+                 only_filenames=only_filenames,
+                 include_remembered=include_remembered)
     finally:
         if ws:
             ws.close()
@@ -623,6 +695,67 @@ def rename_layer_to_folder(api: ArenaAPI, folder: str, layer: int):
             log(f"  Renamed layer {layer} to '{folder_name}'")
         except Exception as exc:
             log(f"  Warning: could not rename layer {layer}: {exc}")
+
+
+def collect_layer_to_folder(api: ArenaAPI, layer: int, dest_folder: str) -> dict:
+    """Copy all clip files from an Arena layer into a local folder.
+
+    Returns {copied: [filenames], skipped: int, sources: int, errors: []}.
+    Skips generated sources (no file path). Handles filename collisions.
+    """
+    clips = api.get_layer_clips(layer)
+    dest = Path(dest_folder)
+    dest.mkdir(parents=True, exist_ok=True)
+
+    copied = []
+    skipped = 0
+    sources = 0
+    errors = []
+    seen_names = {}
+
+    for clip in clips:
+        src_path = clip["path"]
+        if not src_path:
+            if clip.get("data"):
+                # Generated source — no file but has clip data
+                name = _extract_clip_name(clip["data"]) or "unknown source"
+                log(f"    Source (no file): {name}")
+                sources += 1
+            else:
+                skipped += 1
+            continue
+
+        src_path = normalize_path(src_path)
+        src = Path(src_path)
+
+        if not src.is_file():
+            errors.append(f"Source not found: {src}")
+            continue
+
+        base = src.stem
+        ext = src.suffix
+        name = src.name
+        if name in seen_names:
+            seen_names[name] += 1
+            name = f"{base}_{seen_names[name]}{ext}"
+        else:
+            seen_names[name] = 1
+
+        dst = dest / name
+        if dst.exists() and dst.stat().st_size == src.stat().st_size:
+            copied.append(name)
+            log(f"    Already present: {name}")
+            continue
+
+        try:
+            shutil.copy2(str(src), str(dst))
+            copied.append(name)
+            log(f"    Copied: {name}")
+        except OSError as e:
+            errors.append(f"Failed to copy {src.name}: {e}")
+            log(f"    ERROR copying {src.name}: {e}")
+
+    return {"copied": copied, "skipped": skipped, "sources": sources, "errors": errors}
 
 
 def sync_folder_to_layer(api: ArenaAPI, folder: str, layer: int,
@@ -1365,6 +1498,16 @@ def create_web_app(desktop_mode=False):
             decks = _state["api"].get_decks()
         except Exception:
             decks = []
+
+        # Auto-clear deck lock if the locked deck no longer exists
+        locked = _state.get("locked_deck")
+        if locked and decks:
+            deck_names = {d["name"] for d in decks}
+            if locked not in deck_names:
+                log(f"  Deck lock auto-cleared: '{locked}' not in current composition")
+                _state["locked_deck"] = None
+                _save()
+
         return jsonify({
             "ok": True,
             "decks": decks,
@@ -1474,6 +1617,9 @@ def create_web_app(desktop_mode=False):
             "snapshots": {},
         }
         _state["sets"].append(new_set)
+        # Auto-activate the new set (no lock check — it's empty)
+        if data.get("activate"):
+            _state["active_set_id"] = new_set["id"]
         _save()
         return jsonify({"ok": True, "set": _serialize_set(new_set)})
 
@@ -1601,7 +1747,28 @@ def create_web_app(desktop_mode=False):
         if "folder" in data:
             m["folder"] = data["folder"]
         if "layer" in data:
-            m["layer"] = int(data["layer"])
+            old_layer = m["layer"]
+            new_layer = int(data["layer"])
+            if old_layer != new_layer:
+                # Migrate snapshot to new layer key
+                old_key = str(old_layer)
+                new_key = str(new_layer)
+                old_snap = s["snapshots"].get(old_key, [])
+                new_snap = s["snapshots"].get(new_key, [])
+                old_has_data = any(
+                    e.get("filename") or e.get("source_name")
+                    for e in old_snap
+                )
+                new_has_data = any(
+                    e.get("filename") or e.get("source_name")
+                    for e in new_snap
+                )
+                if old_has_data and not new_has_data:
+                    s["snapshots"][new_key] = s["snapshots"].pop(old_key)
+                    log(f"  Migrated snapshot from layer {old_layer} to {new_layer}")
+                m["layer"] = new_layer
+            else:
+                m["layer"] = new_layer
         _save()
         return jsonify({"ok": True})
 
@@ -1636,6 +1803,13 @@ def create_web_app(desktop_mode=False):
         layer_key = str(m["layer"])
         try:
             old_snap = s["snapshots"].get(layer_key)
+            sf = _state["options"].get("snapshot_folder", "")
+
+            # For force sync, preserve the original snapshot for source
+            # restoration BEFORE the pre-sync snapshot can overwrite
+            # custom source settings with defaults.
+            if force:
+                layer_snap = merge_with_combined(old_snap, sf, m["layer"])
 
             # 1) Save current settings BEFORE sync (merge to keep removed clips)
             try:
@@ -1646,17 +1820,32 @@ def create_web_app(desktop_mode=False):
             except Exception:
                 pass  # don't block sync if snapshot fails
 
-            # Merge with combined snapshot file for richer data
-            sf = _state["options"].get("snapshot_folder", "")
-            layer_snap = merge_with_combined(
-                s["snapshots"].get(layer_key), sf, m["layer"]
-            )
+            # For non-force sync, build layer_snap after merge
+            if not force:
+                layer_snap = merge_with_combined(
+                    s["snapshots"].get(layer_key), sf, m["layer"]
+                )
 
             # 2) Sync
             result = sync_folder_to_layer(
                 _state["api"], m["folder"], m["layer"],
                 force_full=force, snapshot=layer_snap,
             )
+
+            # 2b) After force sync, re-create generated sources from snapshot
+            #     Include remembered sources — they become remembered after merge
+            #     since they're never in the folder, but we still want them restored.
+            if force and layer_snap:
+                source_entries = [
+                    e for e in layer_snap
+                    if e.get("source_name") and e.get("data") and e.get("slot")
+                ]
+                if source_entries:
+                    log(f"  Restoring {len(source_entries)} generated source(s)...")
+                    restore_snapshot(
+                        _state["api"], m["layer"], layer_snap,
+                        include_remembered=True,
+                    )
 
             # Rename layer to folder name if option is enabled
             if _state["options"].get("rename_layers"):
@@ -1913,6 +2102,161 @@ def create_web_app(desktop_mode=False):
                 save_combined_snapshot(sf, m["layer"], m["folder"],
                                       s["snapshots"][layer_key], comp)
             return jsonify({"ok": True})
+        except Exception as e:
+            log(f"  ERROR: {e}")
+            return jsonify({"ok": False, "error": str(e)}), 500
+
+    @app.route("/api/collect-all", methods=["POST"])
+    def collect_all():
+        """Collect files from ALL Arena layers into auto-created folder structure.
+
+        Scans every layer in the composition. Layers with clips get a folder
+        and a mapping. Empty layers are skipped.
+
+        Body: {"destination": "/path/to/root/folder"}
+        Creates: <destination>/<composition>/<deck>/<layer_name>/
+        """
+        s = _active_set()
+        if not s:
+            return jsonify({"ok": False, "error": "No active set"}), 400
+        if not _state["api"]:
+            return jsonify({"ok": False, "error": "Not connected to Arena"}), 400
+
+        data = flask_request.get_json(silent=True) or {}
+        destination = data.get("destination", "").strip()
+        if not destination:
+            return jsonify({"ok": False, "error": "No destination folder specified"}), 400
+
+        dest_root = Path(destination)
+        try:
+            dest_root.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            return jsonify({"ok": False, "error": f"Cannot create destination: {e}"}), 400
+
+        api = _state["api"]
+        comp_name = _sanitize_dirname(api.get_composition_name() or "Composition")
+        deck_name = _sanitize_dirname(api.get_selected_deck() or "Deck 1")
+        sf = _state["options"].get("snapshot_folder", "")
+        comp = _state.get("locked_composition", "")
+        num_layers = api.get_layer_count()
+
+        results = []
+        used_names = {}
+
+        # Build lookup of existing mappings by layer number
+        existing = {m["layer"]: m for m in s.get("mappings", [])}
+
+        log(f"Collecting from {num_layers} Arena layers...")
+
+        for layer in range(1, num_layers + 1):
+            # Check if this layer has any loaded clips
+            try:
+                clips = api.get_layer_clips(layer)
+            except Exception as e:
+                log(f"  Skipping layer {layer}: {e}")
+                continue
+            loaded = [c for c in clips if c["path"]]
+            if not loaded:
+                log(f"  Layer {layer}: empty, skipping")
+                continue
+
+            layer_name = _sanitize_dirname(api.get_layer_name(layer))
+            # Append counter if this name was already used
+            if layer_name in used_names:
+                used_names[layer_name] += 1
+                layer_name = f"{layer_name} ({used_names[layer_name]})"
+            else:
+                used_names[layer_name] = 1
+
+            layer_folder = dest_root / comp_name / deck_name / layer_name
+            log(f"  Layer {layer} ({layer_name}): {len(loaded)} clips -> {layer_folder}")
+
+            try:
+                result = collect_layer_to_folder(api, layer, str(layer_folder))
+                results.append({
+                    "layer": layer, "layer_name": layer_name,
+                    "folder": str(layer_folder),
+                    "copied": len(result["copied"]),
+                    "skipped": result["skipped"],
+                    "errors": result["errors"],
+                })
+                # Save snapshot for this layer
+                layer_key = str(layer)
+                old_snap = s["snapshots"].get(layer_key)
+                new_snap = snapshot_layer(api, layer)
+                s["snapshots"][layer_key] = merge_snapshots(old_snap, new_snap)
+                if sf:
+                    save_combined_snapshot(sf, layer, str(layer_folder),
+                                          s["snapshots"][layer_key], comp)
+                # Create or update mapping for this layer
+                if layer in existing:
+                    existing[layer]["folder"] = str(layer_folder)
+                else:
+                    new_m = {"id": _next_id(), "folder": str(layer_folder),
+                             "layer": layer}
+                    s["mappings"].append(new_m)
+                    existing[layer] = new_m
+            except Exception as e:
+                log(f"  ERROR collecting layer {layer}: {e}")
+                results.append({"layer": layer, "layer_name": layer_name,
+                                "folder": str(layer_folder),
+                                "copied": 0, "skipped": 0, "errors": [str(e)]})
+
+        # Write combined snapshot file into the collect destination folder
+        collect_snap_dir = str(dest_root / comp_name / deck_name)
+        for r in results:
+            layer_num = r["layer"]
+            layer_key = str(layer_num)
+            snap_data = s["snapshots"].get(layer_key)
+            if snap_data:
+                m = existing.get(layer_num)
+                folder_path = m["folder"] if m else r.get("folder", "")
+                save_combined_snapshot(collect_snap_dir, layer_num, folder_path,
+                                      snap_data, comp)
+
+        _save()
+        total = sum(r["copied"] for r in results)
+        total_err = sum(len(r["errors"]) for r in results)
+        log(f"Collect complete: {total} files copied, {total_err} errors")
+        return jsonify({"ok": True, "results": results,
+                        "total_copied": total})
+
+    @app.route("/api/mappings/<mapping_id>/collect", methods=["POST"])
+    def collect_mapping(mapping_id):
+        """Collect files from a single Arena layer into the mapping's folder."""
+        s = _active_set()
+        if not s:
+            return jsonify({"ok": False, "error": "No active set"}), 400
+        m = _find_mapping(s, mapping_id)
+        if not m:
+            return jsonify({"ok": False, "error": "Mapping not found"}), 404
+        if not _state["api"]:
+            return jsonify({"ok": False, "error": "Not connected to Arena"}), 400
+        if not m["folder"]:
+            return jsonify({"ok": False, "error": "No folder path set"}), 400
+        try:
+            log(f"Collecting layer {m['layer']} -> {m['folder']}")
+            result = collect_layer_to_folder(_state["api"], m["layer"], m["folder"])
+            # Save snapshot after collecting
+            layer_key = str(m["layer"])
+            old_snap = s["snapshots"].get(layer_key)
+            new_snap = snapshot_layer(_state["api"], m["layer"])
+            s["snapshots"][layer_key] = merge_snapshots(old_snap, new_snap)
+            _save()
+            snap = s["snapshots"].get(layer_key, [])
+            source_count = sum(1 for e in snap if e.get("source_name"))
+            file_count = sum(1 for e in snap if e.get("filename"))
+            if source_count or file_count:
+                log(f"  Snapshot saved: {file_count} file(s), {source_count} source(s)")
+            sf = _state["options"].get("snapshot_folder", "")
+            if sf and snap:
+                comp = _state.get("locked_composition", "")
+                save_combined_snapshot(sf, m["layer"], m["folder"],
+                                      snap, comp)
+            return jsonify({"ok": True, "copied": len(result["copied"]),
+                            "skipped": result["skipped"],
+                            "sources": result["sources"],
+                            "errors": result["errors"]})
         except Exception as e:
             log(f"  ERROR: {e}")
             return jsonify({"ok": False, "error": str(e)}), 500

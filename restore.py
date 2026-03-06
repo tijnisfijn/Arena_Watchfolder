@@ -23,11 +23,15 @@ except ImportError:
 
 def restore_snapshot(api, layer: int, snapshot: list[dict],
                      ws=None, logger=None,
-                     only_filenames: set[str] | None = None):
+                     only_filenames: set[str] | None = None,
+                     include_remembered: bool = False):
     """Restore clip settings from a snapshot to the current layer state.
 
     Matches clips by filename — if a clip with the same filename exists
     in the snapshot and on the layer, its settings are applied.
+
+    Also re-creates generated sources (non-file clips like Solid Color,
+    Checkered, etc.) from snapshot entries that have source_name set.
 
     Args:
         api:      ArenaAPI instance (REST client).
@@ -40,6 +44,9 @@ def restore_snapshot(api, layer: int, snapshot: list[dict],
         only_filenames: Optional set of filenames to restrict restoration to.
                   When provided, only clips whose filename is in this set
                   will be restored. Other clips are left untouched.
+        include_remembered: When True, also restore generated sources that
+                  are marked as remembered (used during force sync where
+                  sources always become remembered after merge).
     """
     log = logger or print
 
@@ -48,17 +55,41 @@ def restore_snapshot(api, layer: int, snapshot: list[dict],
 
     use_ws = ws is not None and ws.connected
 
+    # --- Phase 1: Re-create generated sources ---
+    # These have no file on disk, so they must be opened by source URI
+    # before we can apply their settings.
+    source_entries = [
+        e for e in snapshot
+        if e.get("source_name") and e.get("data") and e.get("slot")
+        and (include_remembered or not e.get("remembered"))
+    ]
+    if source_entries:
+        log(f"  Re-creating {len(source_entries)} generated source(s)...")
+        for entry in source_entries:
+            try:
+                api.open_clip_source(layer, entry["slot"], entry["source_name"])
+                log(f"    + Opened source '{entry['source_name']}' in slot {entry['slot']}")
+            except Exception as exc:
+                log(f"    Warning: could not open source '{entry['source_name']}': {exc}")
+        # Give Arena time to process the opened sources
+        time.sleep(0.5)
+
+    # --- Phase 2: Restore file-based clip settings ---
     current_clips = api.get_layer_clips(layer)
 
     # Build lookup: filename -> list of snapshot entries (handles duplicates)
     snap_by_name: dict[str, list[dict]] = {}
     for entry in snapshot:
-        if entry["filename"] and entry["data"]:
+        if entry.get("filename") and entry.get("data"):
             snap_by_name.setdefault(entry["filename"], []).append(entry)
 
     restored = 0
     for clip in current_clips:
         if not clip["path"]:
+            # Check if this is a generated source we just re-created
+            if clip["data"]:
+                _restore_source_clip(api, ws, use_ws, layer, clip, source_entries, log)
+                restored += 1
             continue
         filename = Path(clip["path"]).name
         if only_filenames is not None and filename not in only_filenames:
@@ -70,36 +101,58 @@ def restore_snapshot(api, layer: int, snapshot: list[dict],
         entry = _best_match(entries, clip)
         clip_data = entry["data"]
 
-        # --- Effects ---
-        # Try WS first (adds effects + sets individual params).
-        # If WS is unavailable, fall back to REST (adds effects only).
-        # _ensure_effects_exist handles dedup so effects aren't added twice.
-        effects_ok = False
-        if use_ws:
-            effects_ok = _restore_effects_ws(
-                ws, api, layer, clip["slot"], clip_data, log,
-            )
-        if not effects_ok:
-            _ensure_effects_exist(api, layer, clip["slot"], clip_data, log)
-
-        # --- Non-effect sections (transport, video props, etc.) ---
-        # These work fine via REST PUT regardless of WS availability.
-        # Never skip effects in the PUT — the WS path handles individual
-        # param setting, but if it fails we need the blob PUT as fallback.
-        any_ok = False
-        for section in _restorable_sections(clip_data, skip_effects=effects_ok):
-            try:
-                api.update_clip(layer, clip["slot"], section)
-                any_ok = True
-            except Exception:
-                pass  # some sections may legitimately fail
-        if any_ok or effects_ok:
-            restored += 1
-        else:
-            log(f"    Warning: could not restore settings for slot {clip['slot']}")
+        restored += _restore_clip_settings(
+            api, ws, use_ws, layer, clip["slot"], clip_data, log,
+        )
 
     if restored:
         log(f"  Restored settings for {restored} clip(s)")
+
+
+def _restore_clip_settings(api, ws, use_ws: bool, layer: int, slot: int,
+                           clip_data: dict, log) -> int:
+    """Restore effects + properties for a single clip. Returns 1 if successful."""
+    # --- Effects ---
+    effects_ok = False
+    if use_ws:
+        effects_ok = _restore_effects_ws(ws, api, layer, slot, clip_data, log)
+    if not effects_ok:
+        _ensure_effects_exist(api, layer, slot, clip_data, log)
+
+    # --- Non-effect sections (transport, video props, source params, etc.) ---
+    any_ok = False
+    sections = _restorable_sections(clip_data, skip_effects=effects_ok)
+    log(f"    Applying {len(sections)} setting section(s) to slot {slot}")
+    for section in sections:
+        section_key = list(section.keys())[0] if section else "?"
+        try:
+            api.update_clip(layer, slot, section)
+            any_ok = True
+        except Exception as exc:
+            log(f"    Warning: section '{section_key}' failed for slot {slot}: {exc}")
+    if any_ok or effects_ok:
+        return 1
+    log(f"    Warning: could not restore settings for slot {slot}")
+    return 0
+
+
+def _restore_source_clip(api, ws, use_ws: bool, layer: int, clip: dict,
+                          source_entries: list[dict], log):
+    """Match a live generated source clip to a snapshot entry and restore settings."""
+    slot = clip["slot"]
+    # Find the source entry that was opened into this slot
+    entry = None
+    for e in source_entries:
+        if e.get("slot") == slot:
+            entry = e
+            break
+    if not entry:
+        log(f"    No snapshot entry for source in slot {slot}")
+        return
+
+    clip_data = entry["data"]
+    log(f"    Restoring settings for source '{entry.get('source_name')}' in slot {slot}")
+    _restore_clip_settings(api, ws, use_ws, layer, slot, clip_data, log)
 
 
 def extract_effect_name(effect: dict) -> str:
@@ -396,7 +449,11 @@ def _restorable_sections(clip_data: dict,
             cleaned_effects.append(ce)
         sections.append({"video": {"effects": cleaned_effects}})
 
-    # 3) video properties (opacity, resize, color channels)
+    # 3) video source parameters (colors, density, etc. for generated sources)
+    if video and video.get("sourceparams"):
+        sections.append({"video": {"sourceparams": _strip_nulls(video["sourceparams"])}})
+
+    # 4) video properties (opacity, resize, color channels)
     if video:
         vid_props = {}
         for key in ("opacity", "resize", "r", "g", "b", "a"):

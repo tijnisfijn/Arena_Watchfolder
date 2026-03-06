@@ -464,6 +464,19 @@
     </div>
   </div>
 
+  <!-- Collect from Arena -->
+  <div class="card" id="card-collect" style="display:none;">
+    <div class="card-title">
+      <span>Collect from Arena</span>
+    </div>
+    <div class="help-text" style="margin-top:0;margin-bottom:8px;">Scans all Arena layers and copies clip files into organized folders. Creates <code>&lt;dest&gt;/&lt;composition&gt;/&lt;deck&gt;/&lt;layer&gt;/</code> with a mapping per layer.</div>
+    <div style="display:flex;gap:6px;align-items:center;">
+      <input type="text" id="collect-destination" placeholder="/path/to/destination" style="flex:1;font-size:13px;">
+      <button class="small secondary" onclick="openBrowser('collect-destination')">Browse</button>
+      <button onclick="collectAll(this)" id="btn-collect-all" title="Copy all clip files from Arena into organized folders">Collect All</button>
+    </div>
+  </div>
+
   <!-- Sets + Mappings -->
   <div class="card">
     <div class="card-title">
@@ -671,9 +684,9 @@
     }
 
     // 2) If backend returned no files (TCC), try native pywebview listing
-    if (compositions.length === 0 && folder && window.pywebviewApi && window.pywebviewApi.list_avc_files) {
+    if (compositions.length === 0 && folder && window.pywebview?.api?.list_avc_files) {
       try {
-        const nativeList = await window.pywebviewApi.list_avc_files(folder);
+        const nativeList = await window.pywebview.api.list_avc_files(folder);
         if (nativeList && nativeList.length > 0) {
           compositions = nativeList;
         }
@@ -710,7 +723,7 @@
     console.log("loadCompositions:", { compositions, currentArenaComp, selected, totalOptions: names.size });
 
     // Show native file picker button when pywebviewApi is available
-    if (window.pywebviewApi && window.pywebviewApi.pick_avc_file) {
+    if (window.pywebview?.api?.pick_avc_file) {
       pickBtn.style.display = "";
     }
   }
@@ -719,9 +732,9 @@
     const folder = document.getElementById("comp-folder").value.trim() || "";
     const startDir = folder || "";
     // Use native dialog if available, otherwise prompt for name
-    if (window.pywebviewApi && window.pywebviewApi.pick_avc_file) {
+    if (window.pywebview?.api?.pick_avc_file) {
       try {
-        const path = await window.pywebviewApi.pick_avc_file(startDir);
+        const path = await window.pywebview.api.pick_avc_file(startDir);
         if (path) {
           const parts = path.replace(/\\/g, "/").split("/");
           let name = parts[parts.length - 1];
@@ -906,15 +919,17 @@
   }
 
   async function createSet() {
-    const name = prompt("New set name:");
-    if (!name) return;
     try {
-      await fetch("/api/sets", {
+      const res = await fetch("/api/sets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name: "New Set", activate: true }),
       });
-      await loadState();
+      const data = await res.json();
+      if (data.ok) {
+        await loadState();
+        renameSet();
+      }
     } catch (e) {}
   }
 
@@ -959,9 +974,13 @@
     const activeSet = state.sets.find(s => s.id === state.active_set_id);
     const syncAllBtn = document.getElementById("btn-sync-all");
     const snapCard = document.getElementById("card-snapshot-all");
+    const collectCard = document.getElementById("card-collect");
+
+    // Collect card is always visible when connected (works without mappings)
+    collectCard.style.display = connected ? "" : "none";
 
     if (!activeSet || !activeSet.mappings.length) {
-      list.innerHTML = '<div class="empty-state">No folder mappings yet.<br>Click "+ Add Folder Mapping" below to map a media folder to an Arena layer.</div>';
+      list.innerHTML = '<div class="empty-state">No folder mappings yet.<br>Click "+ Add Folder Mapping" below to map a media folder to an Arena layer, or use "Collect All" above to collect from Arena and create mappings automatically.</div>';
       syncAllBtn.style.display = "none";
       snapCard.style.display = "none";
       return;
@@ -996,11 +1015,13 @@
         </div>
         <div class="mapping-actions">
           <button class="small" onclick="syncMapping('${m.id}', this)" ${!connected ? 'disabled' : ''} title="Sync this folder to its Arena layer — adds new files, removes deleted ones, keeps existing clips untouched">Sync Now</button>
+          <button class="small" style="background:#8B5E3C;" onclick="forceSyncMapping('${m.id}', this)" ${!connected ? 'disabled' : ''} title="Clear ALL clips from this layer and reload from the folder — use after Collect to re-link Arena to the new file paths">Force Sync</button>
           ${!w
             ? `<button class="small success" onclick="startWatch('${m.id}')" ${!connected ? 'disabled' : ''} title="Continuously monitor this folder and auto-sync when files change">Start Watch</button>`
             : `<button class="small danger" onclick="stopWatch('${m.id}')" title="Stop monitoring this folder">Stop Watch</button>`
           }
           <button class="small secondary" onclick="restoreMapping('${m.id}')" ${!connected ? 'disabled' : ''} title="Restore clip settings from the last snapshot — clips are matched by filename">Restore Settings</button>
+          <button class="small secondary" onclick="collectMapping('${m.id}', this)" ${!connected ? 'disabled' : ''} title="Copy clip files from Arena into this mapping's folder">Collect</button>
         </div>
       `;
       list.appendChild(card);
@@ -1128,15 +1149,89 @@
     } catch (e) {}
   }
 
+  // ─── Force Sync ───
+
+  async function forceSyncMapping(id, btn) {
+    if (!confirm(
+      "Force Sync will CLEAR all clips from this layer and reload from the folder.\n\n" +
+      "Effects and settings will be temporarily lost.\n" +
+      "Use 'Restore Settings' afterward to bring them back.\n\nContinue?"
+    )) return;
+    if (btn) { btn.disabled = true; btn.textContent = "Syncing..."; }
+    try {
+      const res = await fetch(`/api/mappings/${id}/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ force: true }),
+      });
+      const data = await res.json();
+      if (!data.ok && data.error) alert(data.error);
+      else if (data.returning && data.returning.length > 0) showReturningModal(id, data.returning);
+    } catch (e) {}
+    if (btn) { btn.disabled = false; btn.textContent = "Force Sync"; }
+  }
+
+  // ─── Collect ───
+
+  async function collectAll(btn) {
+    const dest = document.getElementById("collect-destination").value.trim();
+    if (!dest) { alert("Enter a destination folder or use Browse."); return; }
+    if (!confirm(
+      "Copy all clip files from Arena layers into:\n\n" +
+      dest + "/<composition>/<deck>/<layer>/\n\n" +
+      "Mappings will be updated to point to the new folders. Continue?"
+    )) return;
+    if (btn) { btn.disabled = true; btn.textContent = "Collecting..."; }
+    try {
+      const res = await fetch("/api/collect-all", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ destination: dest }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        alert(data.error || "Collect failed");
+      } else {
+        const errs = data.results.filter(r => r.errors.length > 0);
+        let msg = `Collected ${data.total_copied} files.`;
+        if (errs.length) msg += ` ${errs.length} layer(s) had errors — check the log.`;
+        alert(msg);
+        await loadState();
+      }
+    } catch (e) { alert("Network error: " + e); }
+    if (btn) { btn.disabled = false; btn.textContent = "Collect All"; }
+  }
+
+  async function collectMapping(id, btn) {
+    if (!confirm("Copy clip files from Arena into this mapping's folder?")) return;
+    if (btn) { btn.disabled = true; btn.textContent = "Collecting..."; }
+    try {
+      const res = await fetch(`/api/mappings/${id}/collect`, { method: "POST" });
+      const data = await res.json();
+      if (!data.ok) {
+        alert(data.error || "Collect failed");
+      } else {
+        let parts = [];
+        if (data.copied) parts.push(`${data.copied} file(s) copied`);
+        if (data.sources) parts.push(`${data.sources} source(s) snapshotted`);
+        if (!data.copied && !data.sources) parts.push("No clips found");
+        if (data.skipped) parts.push(`${data.skipped} empty slot(s) skipped`);
+        if (data.errors && data.errors.length) parts.push(`${data.errors.length} error(s) — check the log`);
+        log(parts.join(". ") + ".");
+      }
+    } catch (e) {}
+    if (btn) { btn.disabled = false; btn.textContent = "Collect"; }
+  }
+
   // ─── Folder browser ───
   async function openBrowser(inputId) {
     browserTargetInput = document.getElementById(inputId);
 
     // Desktop mode: use native OS folder dialog (has proper macOS TCC access)
-    if (window.pywebviewApi && window.pywebviewApi.pick_folder) {
+    if (window.pywebview?.api?.pick_folder) {
       const startPath = browserTargetInput.value.trim() || "";
       try {
-        const path = await window.pywebviewApi.pick_folder(startPath);
+        const path = await window.pywebview.api.pick_folder(startPath);
         if (path) {
           browserTargetInput.value = path;
           browserTargetInput.dispatchEvent(new Event("change"));
@@ -1310,7 +1405,7 @@
   checkDesktopMode();
   loadState();
 
-  // pywebview injects window.pywebviewApi AFTER page load.
+  // pywebview injects window.pywebview.api AFTER page load.
   // Re-run loadCompLock once it's ready so native buttons appear.
   window.addEventListener("pywebviewready", () => {
     loadCompLock();
