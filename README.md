@@ -2,84 +2,33 @@
 
 ![Arena Watchfolder](banner.jpg)
 
-Sync local folders of media files to layers in [Resolume Arena](https://resolume.com/) — automatically.
+**Keep your Resolume Arena clips in sync with folders on disk — automatically.**
 
-Drop videos and images into a folder, and they appear as clips in Arena. Add or remove files, and the layer updates to match. Your clip effects, speed settings, cue points, and blend modes are preserved across syncs.
+Arena Watchfolder bridges the gap between your file system and Resolume Arena. Map a folder to a layer, and every video or image in that folder becomes a clip in Arena. Add a file, it appears. Remove a file, it disappears. Your effects, speed settings, cue points, and blend modes are preserved across every sync.
 
-## What can you do with it?
+## Why use this?
 
-Here are some real-world examples:
+If you use Resolume Arena for live visuals, you know the pain: manually loading clips one by one, losing all your effect tweaks when you reload media, and having no easy way to switch between different media sets for different gigs.
 
-- **Gig prep made easy** — Organize your media into folders per event ("Thursday Night", "Friday Night"), map each folder to a layer in Arena, and switch between them with one click. All your clip tweaks come back automatically.
-- **Live media updates** — Drop a new video into your mapped folder mid-show and it appears in Arena within seconds (watch mode). Remove a file and the clip disappears from the layer.
-- **Multi-layer setups** — Map different folders to different layers in a single set: backgrounds on layer 1, overlays on layer 2, text on layer 3. Sync them all at once.
-- **Quick A/B comparison** — Create two sets with slightly different media or folder structures, switch between them to compare how different clips look in your composition.
-- **Remote media updates** — Use a synced folder (Dropbox, Google Drive, etc.) so team members can add or update media files remotely. The files sync to your local machine first, then Watch mode picks them up and loads them into Arena. Always run media from a local drive for reliable playback — never directly from a network share.
+Arena Watchfolder solves this:
 
-## Features
-
-- **Smart sync** — only adds/removes changed clips; existing effects and settings are never touched
-- **Sets & profiles** — named configurations (e.g. "Thursday Night", "Friday Night") with their own folder-to-layer mappings
-- **Clip memory** — snapshot and restore all clip settings including effects with full parameter values, transport, cue points, and more
-- **WebSocket + REST** — effects are restored with precise parameter-by-ID updates via WebSocket, with REST as a reliable fallback
-- **Multi-layer mapping** — sync multiple folders to different layers in a single set
-- **Editable mappings** — change the folder path or layer number of any mapping after creating it
-- **Watch mode** — continuously monitor folders and re-sync on file changes
-- **Web UI** — browser-based interface with real-time log streaming and built-in help
-- **Desktop app** — native window via pywebview (optional)
-- **Batch loading** — loads multiple clips in a single API call for faster sync
-- **Auto-expand** — grows the composition columns if the folder has more files than slots
-- **Config persistence** — sets, mappings, and snapshots saved to disk across restarts
-- **Tooltips & help** — hover over any button for a quick explanation, or open the built-in help panel for a full guide
-
-> **Important:** Always quit the app properly when you're done. If left running in the background (especially in watch mode), it will keep syncing files to Arena — which can cause unwanted changes if you switch to a different composition. See [Shutting down properly](#shutting-down-properly) for details.
-
-### What gets saved and restored
-
-When you snapshot a layer, the following clip properties are captured and can be restored:
-
-| Category | Properties |
-|----------|-----------|
-| **Effects** | All video effects (Blur, Color Balance, etc.) with full parameter values |
-| **Transform** | Position, scale, rotation, anchor point |
-| **Transport** | Speed, direction, play mode (autopilot), beat loop, duration |
-| **Cue points** | In/out points on the timeline |
-| **Video** | Opacity, resize mode, color channels (R/G/B/A) |
-| **Audio** | Volume, pan |
-| **Blend & trigger** | Trigger style, transport type, target, fader start, beat snap |
-| **Transition** | Transition type and duration |
-| **Dashboard** | Dashboard knob assignments |
-| **Clip name** | Custom clip name set in Arena |
-
-### What is NOT saved or restored
-
-Some properties are outside the scope of Arena's REST/WebSocket API, or don't make sense to persist:
-
-| What | Why |
-|------|-----|
-| **Automation** | Arena UI feature — not exposed through the API |
-| **Cue point markers** | The diamond markers in Arena's timeline are UI-only |
-| **Live playback position** | Changes every frame — cue in/out points *are* saved, but the current playhead position is not |
-| **Layer-level settings** | Layer effects, layer blend mode, layer opacity, and layer transitions are not captured — snapshots are per-clip only |
-| **Composition settings** | Global composition properties (output resolution, FPS, etc.) are not affected |
-
-> **In short:** everything you set *on a clip* (effects, speed, cue points, blend mode, etc.) is saved. Everything set *on the layer* or *on the composition* is not.
-
-### Supported formats
-
-**Video**
-**Image** 
+- **Gig prep made easy** — Organize media into folders per event, map each to a layer, and switch between them with one click. All your clip tweaks come back automatically.
+- **Live media updates** — Drop a new video into your folder mid-show and it appears in Arena within seconds. Remove a file and the clip disappears.
+- **Multi-layer setups** — Map different folders to different layers: backgrounds on layer 1, overlays on layer 2, text on layer 3. Sync them all at once.
+- **Clip memory** — Snapshot every clip setting (effects, speed, cue points, blend modes) and restore them later, even after switching compositions or restarting Arena.
+- **Safety locks** — Prevent accidental syncs when the wrong composition or deck is loaded.
+- **Collect from Arena** — Pull an existing Arena layer into a folder with one click, including all files and settings.
 
 ## Quick Start
 
-> **Not familiar with Python or the terminal?** No worries — paste these instructions into any AI assistant (like ChatGPT, Claude, or Copilot) and ask it to walk you through the setup step by step. It'll get you up and running in no time. You can also paste any error messages you encounter and the AI will help you fix them.
+> **Not familiar with Python?** Paste these instructions into any AI assistant (ChatGPT, Claude, Copilot) and ask it to walk you through the setup. You can also paste any error messages and it'll help fix them.
 
 ### Requirements
 
-- **Python 3.10+** — [Download here](https://www.python.org/downloads/) if you don't have it
-- **Resolume Arena 7.x** with the webserver enabled (Preferences > Webserver)
+- **Python 3.10+** — [download here](https://www.python.org/downloads/) if you don't have it
+- **Resolume Arena 7.x+** with the web server enabled (Preferences > Webserver)
 
-### Installation
+### Install
 
 **1. Download the project**
 
@@ -88,101 +37,68 @@ git clone https://github.com/tijnisfijn/Arena_Watchfolder.git
 cd Arena_Watchfolder
 ```
 
-Or click the green **Code** button on GitHub and select **Download ZIP**, then extract it.
+Or click the green **Code** button on GitHub and choose **Download ZIP**, then extract it.
 
-**2. Set up the environment**
+**2. Create a virtual environment and install dependencies**
 
+macOS / Linux:
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate    # macOS / Linux
-# .venv\Scripts\activate     # Windows
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Windows:
+```bash
+python -m venv .venv
+.venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
 **3. Run it**
 
 ```bash
-# Web UI (recommended)
 python watchfolder.py --ui
-
-# Or as a desktop app (native window)
-pip install pywebview pystray Pillow
-python watchfolder.py --desktop
 ```
 
 The web UI opens at `http://127.0.0.1:5000`. If port 5000 is taken (common on macOS due to AirPlay), use `--ui-port 5050`.
 
-> **Tip:** If anything goes wrong during installation, copy the error message and paste it into an AI assistant — it can usually diagnose and fix the problem in seconds.
+> **Desktop app mode** (native window instead of browser tab):
+> ```bash
+> pip install pywebview pystray Pillow
+> python watchfolder.py --desktop
+> ```
 
-### Step-by-step: Your first sync
+### Your first sync
 
-1. Make sure Resolume Arena is running with the webserver enabled (Preferences > Webserver)
-2. Start the Watchfolder app (`python watchfolder.py --ui`)
-3. Click **Connect** in the top bar — it should find Arena on `127.0.0.1:8080`
-4. Create a new set (e.g. "My First Set") using the **New** button
-5. Click **Add Folder Mapping** and pick a folder with some video files
+1. Make sure Arena is running with the web server enabled (Preferences > Webserver)
+2. Start the app: `python watchfolder.py --ui`
+3. Click **Connect** — it should find Arena on `127.0.0.1:8080`
+4. Create a set (e.g. "My First Set") using the **New** button
+5. Click **Add Folder Mapping** and pick a folder with video files
 6. Set the layer number (which Arena layer to sync to)
-7. Click **Sync Now** — your files appear as clips in Arena!
-8. Make some changes to the clips in Arena (add effects, change speed, etc.)
-9. Click **Save Settings** to snapshot everything
+7. Click **Sync Now** — your files appear as clips in Arena
+8. Tweak the clips in Arena (add effects, change speed, etc.)
+9. Click **Save Settings** to snapshot your work
 10. Next time you sync, click **Restore Settings** to bring it all back
 
-## Usage
+For the full user manual — covering every panel, feature, workflow, and troubleshooting — see **[Docs/USER_MANUAL.md](Docs/USER_MANUAL.md)**.
 
-### Web UI
-
-```bash
-python watchfolder.py --ui --ui-port 5050
-```
-
-Open `http://127.0.0.1:5050` in your browser. From there you can:
-
-1. **Connect** to Arena (set host/port if not default)
-2. **Create sets** — e.g. "Thursday Night", "Friday Night"
-3. **Add mappings** — assign folders to layers within each set
-4. **Edit mappings** — click the pencil icon to change folder path or layer number
-5. **Sync / Watch** — one-shot sync or continuous watch per mapping
-6. **Snapshot / Restore** — save and recall clip settings (effects, speed, blend modes, cue points)
-7. **Switch sets** — current settings are auto-saved, new set is synced and restored
-
-Log output streams in real time at the bottom of the page. Hover over any button for a tooltip explaining what it does, or click the **?** button for the full built-in help guide.
-
-### Desktop App
+## CLI Usage
 
 ```bash
-pip install pywebview pystray Pillow
-python watchfolder.py --desktop
-```
-
-Opens the same UI in a native window instead of a browser tab. On **Windows/Linux**, closing the window minimizes to the system tray. On **macOS**, use the Quit button in the UI to exit (system tray requires the main thread which is already used by the native window).
-
-### CLI
-
-**One-shot sync:**
-
-```bash
+# One-shot sync
 python watchfolder.py --folder ~/Videos/MySet --layer 2
-```
 
-**Watch mode (continuous):**
-
-```bash
+# Watch mode (continuous)
 python watchfolder.py --folder ~/Videos/MySet --layer 2 --watch
-```
 
-**Custom Arena host/port:**
-
-```bash
+# Custom Arena host/port
 python watchfolder.py --folder ~/Videos/MySet --layer 3 --host 192.168.1.100 --port 8080
-```
 
-**Dry run (preview only):**
-
-```bash
+# Dry run (preview without changing Arena)
 python watchfolder.py --folder ~/Videos/MySet --layer 1 --dry-run
 ```
-
-### All options
 
 | Flag | Description |
 |------|-------------|
@@ -196,152 +112,15 @@ python watchfolder.py --folder ~/Videos/MySet --layer 1 --dry-run
 | `--ui-port` | Web UI port (default: `5000`) |
 | `--desktop` | Launch as desktop app with native window |
 
-## How It Works
-
-### Smart sync
-
-Instead of clearing all clips and reloading from scratch, smart sync:
-
-1. Reads the current clips from Arena (what's loaded, where)
-2. Scans the local folder for supported media files
-3. Diffs the two: new files, removed files, unchanged files
-4. Clears only removed clips
-5. Loads only new files into available slots
-
-**Unchanged clips are never touched** — all effects, speed settings, blend modes, and other tweaks survive a sync.
-
-### Sets & clip memory
-
-A **set** is a named profile with one or more folder-to-layer mappings. When you switch sets:
-
-1. Current clip settings are **snapshotted** (saved per layer)
-2. New set's folders are **synced** to their layers
-3. Previously saved settings are **restored** from the new set's snapshots
-
-This means you can use different media folders for different nights, and when you switch back, all your clip tweaks are exactly where you left them.
-
-### Effect restoration
-
-Effect settings are the hardest part to restore reliably. Arena assigns new parameter IDs every time an effect is added, so saved IDs become useless. This app uses a hybrid approach:
-
-1. **REST API** adds missing effects synchronously (guaranteed to be present when the call returns)
-2. **REST API** re-reads the clip to get fresh parameter IDs
-3. **WebSocket** sets each parameter individually by ID, matched to saved values by structural key path (e.g. `params/softness`, `params/amount`)
-
-If WebSocket is unavailable, the app falls back to REST-only restoration (effect parameter blobs via PUT).
-
-### Watch mode
-
-In watch mode, the app monitors folders using [watchdog](https://github.com/gorakhargosh/watchdog) (with a polling fallback on network drives) and runs a smart sync whenever files are added or removed. When clips return to the layer after being removed and re-added, their previous settings are automatically restored.
-
-## Architecture
-
-```
-watchfolder.py      Main app — Flask web server, ArenaAPI REST client, sync logic, CLI
-restore.py          Clip settings restore logic (WebSocket + REST hybrid)
-arena_ws.py         Synchronous WebSocket client for Arena
-config.py           Persistent configuration (JSON file)
-desktop.py          Desktop app wrapper (pywebview + optional pystray)
-templates/
-  index.html        Web UI (single-page app, dark theme, built-in help)
-```
-
-### Module dependencies
-
-```
-watchfolder.py ─── imports from ──→ restore.py, config.py
-                                         │
-restore.py ──── imports from ──→ arena_ws.py (optional)
-                                         │
-arena_ws.py ─── standalone (json, websocket-client)
-desktop.py ──── imports from ──→ watchfolder.py (create_web_app)
-```
-
-No circular imports. `restore.py` and `arena_ws.py` receive dependencies as parameters, never import from `watchfolder.py`.
-
-## Platform Support
+## Platform support
 
 | Platform | Status |
 |----------|--------|
 | **macOS** | Tested and working |
-| **Windows** | Not yet tested — help wanted! |
-| **Linux** | Not yet tested — help wanted! |
+| **Windows** | Should work — help wanted for testing |
+| **Linux** | Should work — help wanted for testing |
 
-### Help wanted: Windows & Linux testing
-
-This app has been developed and tested on **macOS only**. I'm actively looking for people who run Resolume Arena on **Windows** or **Linux** to help test and contribute.
-
-The core sync logic should work cross-platform since it's all Python + REST API calls, but there may be platform-specific issues with:
-
-- **File paths** — Windows uses backslashes, and path handling may need tweaks
-- **Desktop app** — pywebview and pystray behave differently across platforms
-- **File watching** — watchdog's native backend varies by OS
-- **Port conflicts** — different default services may occupy ports 5000/8080
-
-**How you can help:**
-
-- **Just try it** — install, run it, and let me know if it works. Even "it works on Windows 11" is valuable feedback!
-- **Report issues** — if something breaks, open a GitHub issue with the error message and your OS version
-- **Submit fixes** — pull requests with platform-specific fixes are very welcome
-- **Use AI to help** — if you're not a Python developer, that's fine! You can use AI tools (ChatGPT, Claude, Copilot, etc.) to help diagnose issues and write fixes. Just paste the error message and the relevant code into an AI assistant and it can usually figure out what needs to change.
-
-All contributions are welcome, whether you write code by hand or use AI-assisted development.
-
-## Shutting down properly
-
-**Always quit the app when you're done.** If you leave it running in the background — especially in watch mode — it will continue syncing files to Arena. This can cause problems if you open a different composition later, because the app may still be pushing clips to the layers it was mapped to.
-
-- **Web UI:** click **Quit Server** in the top-right corner, or press `Ctrl+C` in the terminal
-- **Desktop app:** click the **Quit** button in the UI (macOS), or use the system tray icon to quit (Windows/Linux)
-- **CLI:** press `Ctrl+C` in the terminal
-
-> **If the app was left running by accident**, you can stop it by closing the terminal window it's running in, or by finding and killing the Python process.
-
-## Troubleshooting
-
-**Can't connect to Arena?**
-- Make sure Arena's webserver is enabled: Preferences > Webserver > Enable
-- Check the host and port match (default: `127.0.0.1:8080`)
-- If Arena is on another machine, use `--host <ip>` with the correct IP address
-
-**Port 5000 already in use?**
-- On macOS, AirPlay Receiver uses port 5000 by default
-- Use `--ui-port 5050` (or any other free port)
-
-**Effects not restoring correctly?**
-- Make sure you saved a snapshot *after* adding effects in Arena
-- The WebSocket connection gives better results than REST-only — check the log for "WebSocket connected"
-
-**Files not syncing in watch mode?**
-- Some network drives don't support native file events — the app falls back to polling automatically
-- Large files may take a moment to become available after copying
-
-**Performance issues or dropped frames?**
-- Always run media from a **local drive** — never play videos directly from a network share or NAS. Network latency causes stuttering and dropped frames in Arena.
-- If collaborating remotely, use a synced folder (Dropbox, Google Drive, etc.) so files land on your local disk first. Watch mode will pick them up automatically.
-
-> **Still stuck?** Copy the error from the log and paste it into an AI assistant (ChatGPT, Claude, etc.) along with a brief description of what you were trying to do. It can usually pinpoint the problem and suggest a fix.
-
-## Dependencies
-
-**Required** (installed via `pip install -r requirements.txt`):
-
-| Package | Purpose |
-|---------|---------|
-| `requests` | HTTP client for Arena REST API |
-| `flask` | Web server for UI and desktop modes |
-| `watchdog` | File system monitoring for watch mode |
-| `websocket-client` | WebSocket for real-time parameter control |
-
-**Optional** (for desktop app mode):
-
-| Package | Purpose |
-|---------|---------|
-| `pywebview` | Native window rendering |
-| `pystray` | System tray icon (Windows/Linux) |
-| `Pillow` | Tray icon generation |
-
-Install optional deps with: `pip install pywebview pystray Pillow`
+The core sync logic is cross-platform (Python + REST API). If you try it on Windows or Linux, please open an issue with your experience — even "it works" is valuable feedback!
 
 ## License
 
