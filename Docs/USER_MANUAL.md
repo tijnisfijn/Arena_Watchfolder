@@ -14,8 +14,9 @@ Scope: `feature/snapshot-and-lock-improvements`
 8. [Dialog and Warning Catalog](#8-dialog-and-warning-catalog)
 9. [Operational Playbooks](#9-operational-playbooks)
 10. [Troubleshooting](#10-troubleshooting)
-11. [Best Practices](#11-best-practices)
-12. [Appendix: Full-Screen References](#12-appendix-full-screen-references)
+11. [CLI & Scripting](#11-cli--scripting)
+12. [Best Practices](#12-best-practices)
+13. [Appendix: Full-Screen References](#13-appendix-full-screen-references)
 
 ---
 
@@ -353,7 +354,24 @@ Result: filesystem is automatically organized by composition/deck/layer and mapp
 
 ---
 
-## 11. Best Practices
+## 11. CLI & Scripting
+
+Every feature in the web UI is also available as a CLI subcommand — designed for scripting, automation, and LLM control.
+
+```bash
+python watchfolder.py status                     # check connection
+python watchfolder.py sets switch 2              # switch gig profiles
+python watchfolder.py sync 3 --force             # full re-sync a mapping
+python watchfolder.py snapshot save --json       # save settings (JSON output)
+```
+
+Add `--json` to any command for machine-readable output that LLMs and scripts can parse.
+
+For the full CLI reference — every command, flag, and integration guide — see **[CLI.md](CLI.md)**.
+
+---
+
+## 12. Best Practices
 
 - Use lock features on shared or high-risk machines.
 - Save All Settings before bulk edits, set switches, and force sync.
@@ -364,7 +382,7 @@ Result: filesystem is automatically organized by composition/deck/layer and mapp
 
 ---
 
-## 12. Appendix: Full-Screen References
+## 13. Appendix: Full-Screen References
 
 ![Appendix A - Full screen with composition lock off](manual-assets/full_ui_comp_lock_off.png)
 

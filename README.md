@@ -73,31 +73,30 @@ The web UI opens at `http://127.0.0.1:5000`. Use `--ui-port 5050` if port 5000 i
 
 ## CLI Usage
 
+Arena Watchfolder has a full CLI with subcommands for every feature — sets, mappings, sync, snapshots, collect, locks, and config. Add `--json` to any command for machine-readable output.
+
 ```bash
-# One-shot sync
-python watchfolder.py --folder ~/Videos/MySet --layer 2
-
-# Watch mode (continuous)
-python watchfolder.py --folder ~/Videos/MySet --layer 2 --watch
-
-# Custom Arena host/port
-python watchfolder.py --folder ~/Videos/MySet --layer 3 --host 192.168.1.100 --port 8080
-
-# Dry run (preview without changing Arena)
-python watchfolder.py --folder ~/Videos/MySet --layer 1 --dry-run
+python watchfolder.py status                          # check connection
+python watchfolder.py sets list                       # list sets
+python watchfolder.py mappings add --folder ~/Vids --layer 1  # add mapping
+python watchfolder.py sync 3                          # sync a mapping
+python watchfolder.py sync 3 --force                  # full re-sync
+python watchfolder.py snapshot save                   # save all clip settings
+python watchfolder.py snapshot restore 3              # restore settings
+python watchfolder.py watch 3                         # watch for changes
+python watchfolder.py collect-all --destination ~/Backup  # reverse sync
+python watchfolder.py lock composition "My Show"      # safety lock
+python watchfolder.py config set host 192.168.1.100   # change settings
 ```
 
-| Flag | Description |
-|------|-------------|
-| `--folder`, `-f` | Path to folder containing media files |
-| `--layer`, `-l` | Arena layer index (1-based) |
-| `--watch`, `-w` | Keep running and re-sync on changes |
-| `--host` | Arena webserver host (default: `127.0.0.1`) |
-| `--port`, `-p` | Arena webserver port (default: `8080`) |
-| `--dry-run` | Show what would happen without changing Arena |
-| `--ui` | Launch web UI instead of CLI |
-| `--ui-port` | Web UI port (default: `5000`) |
-| `--desktop` | Launch as desktop app with native window |
+**Legacy mode** (simple one-off sync) still works:
+
+```bash
+python watchfolder.py --folder ~/Videos/MySet --layer 2
+python watchfolder.py --folder ~/Videos/MySet --layer 2 --watch
+```
+
+For the full CLI reference — every command, flag, JSON output format, and LLM integration guide — see **[Docs/CLI.md](Docs/CLI.md)**.
 
 ## License
 
