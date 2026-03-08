@@ -1,7 +1,6 @@
 """Persistent configuration for Arena Watchfolder."""
 
 import json
-import platform
 from pathlib import Path
 
 
@@ -33,10 +32,12 @@ def load_config() -> dict:
 
 
 def save_config(config: dict):
-    """Save configuration to disk."""
+    """Save configuration to disk (atomic write)."""
     path = _config_path()
-    with open(path, "w") as f:
+    tmp = path.with_suffix(".tmp")
+    with open(tmp, "w") as f:
         json.dump(config, f, indent=2)
+    tmp.replace(path)
 
 
 def _defaults() -> dict:

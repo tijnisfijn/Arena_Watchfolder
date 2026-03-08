@@ -12,7 +12,6 @@ Usage:
 import os
 import platform
 import socket
-import sys
 import threading
 
 import webview
@@ -129,7 +128,6 @@ def main():
             grants or Full Disk Access).  Falls back gracefully.
             """
             import os
-            from pathlib import Path as P
             try:
                 names = []
                 for name in sorted(os.listdir(folder)):

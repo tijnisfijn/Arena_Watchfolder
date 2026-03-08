@@ -35,6 +35,7 @@ import sys
 import threading
 import time
 import urllib.parse
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -596,8 +597,10 @@ def save_combined_snapshot(snapshot_folder: str, layer: int, folder_path: str,
 
     # Write
     try:
-        with open(filepath, "w") as f:
+        tmp = filepath.with_suffix(".tmp")
+        with open(tmp, "w") as f:
             json.dump(combined, f, indent=2)
+        tmp.replace(filepath)
     except OSError:
         pass
 
@@ -756,6 +759,111 @@ def collect_layer_to_folder(api: ArenaAPI, layer: int, dest_folder: str) -> dict
             log(f"    ERROR copying {src.name}: {e}")
 
     return {"copied": copied, "skipped": skipped, "sources": sources, "errors": errors}
+
+
+def recreate_duplicates(api: ArenaAPI, layer: int, snapshot: list[dict],
+                        logger=None):
+    """Re-open duplicate clips that the snapshot recorded but sync only loaded once.
+
+    If the snapshot had N copies of a file but the layer only has 1,
+    opens extra copies in their original slots so settings can be restored.
+
+    Also detects renamed copies from collect (e.g. clip_2.mov, clip_3.mov)
+    and replaces them with proper duplicates of the original file.
+    """
+    log = logger or print
+    import re
+
+    if not snapshot:
+        return
+
+    # Count instances in snapshot (only entries with slot + data + filename)
+    snap_counts = Counter(
+        e["filename"] for e in snapshot
+        if e.get("filename") and e.get("data") and e.get("slot") is not None
+    )
+    # Only care about filenames that appear more than once
+    duplicated = {fn: count for fn, count in snap_counts.items() if count > 1}
+    if not duplicated:
+        return
+
+    current_clips = api.get_layer_clips(layer)
+
+    # Phase 1: Detect and clear renamed copies from collect.
+    # Collect renames duplicates as file_2.mov, file_3.mov etc. but the
+    # snapshot keeps the original filename. Clear the renamed copies so
+    # we can recreate proper duplicates.
+    for clip in current_clips:
+        if not clip["path"]:
+            continue
+        name = Path(clip["path"]).name
+        stem = Path(name).stem
+        ext = Path(name).suffix
+        m = re.match(r'^(.+)_(\d+)$', stem)
+        if m:
+            base_name = m.group(1) + ext
+            if base_name in duplicated:
+                try:
+                    api.clear_clip(layer, clip["slot"])
+                    log(f"    Cleared renamed copy '{name}' from slot {clip['slot']}")
+                except Exception:
+                    pass
+
+    # Re-read layer after clearing renamed copies
+    current_clips = api.get_layer_clips(layer)
+    layer_counts = Counter(
+        Path(c["path"]).name for c in current_clips if c["path"]
+    )
+
+    # Phase 2: Open extra copies in original slots
+    for filename, snap_count in duplicated.items():
+        layer_count = layer_counts.get(filename, 0)
+        extras = snap_count - layer_count
+        if extras <= 0:
+            continue
+
+        # Find source file path from current layer
+        source_path = next(
+            (c["path"] for c in current_clips
+             if c["path"] and Path(c["path"]).name == filename),
+            None,
+        )
+        if not source_path:
+            continue
+
+        # Get original slot positions from snapshot
+        original_slots = [
+            e["slot"] for e in snapshot
+            if e.get("filename") == filename and e.get("slot") is not None
+        ]
+        # Exclude slots already occupied by this file
+        occupied_slots = {
+            c["slot"] for c in current_clips
+            if c["path"] and Path(c["path"]).name == filename
+        }
+        preferred_slots = [s for s in original_slots if s not in occupied_slots]
+
+        # Grow columns if needed
+        max_slot = max(original_slots) if original_slots else 0
+        total_needed = max(max_slot, len(current_clips) + extras)
+        api.grow_columns(total_needed)
+
+        # Open extra copies
+        for i in range(extras):
+            if preferred_slots:
+                slot = preferred_slots.pop(0)
+            else:
+                refreshed = api.get_layer_clips(layer)
+                occupied = {c["slot"] for c in refreshed if c["path"]}
+                slot = next(
+                    (c["slot"] for c in refreshed if c["slot"] not in occupied),
+                    len(refreshed) + 1,
+                )
+            try:
+                api.open_clip(layer, slot, source_path)
+            except Exception as exc:
+                log(f"    Warning: could not recreate duplicate in slot {slot}: {exc}")
+        log(f"  Recreated {extras} duplicate(s) of {filename}")
 
 
 def sync_folder_to_layer(api: ArenaAPI, folder: str, layer: int,
@@ -964,7 +1072,6 @@ def watch_folder(api: ArenaAPI, folder: str, layer: int, stop_flag=None,
 
     def _sync_and_auto_restore():
         """Save settings → sync → recreate duplicates → restore → cross-layer → save."""
-        from collections import Counter
 
         # 1) Save current settings before sync (merge to keep removed clips)
         if snapshot_saver:
@@ -986,66 +1093,8 @@ def watch_folder(api: ArenaAPI, folder: str, layer: int, stop_flag=None,
             rename_layer_to_folder(api, folder, layer)
 
         # 2b) Recreate duplicate clips from snapshot
-        #     If the snapshot had N copies of a file but sync only created 1,
-        #     open extra copies in their original slots.
         if snap:
-            # Count instances in snapshot (only entries with slot + data)
-            snap_counts = Counter(
-                e["filename"] for e in snap
-                if e.get("filename") and e.get("data") and e.get("slot") is not None
-            )
-            # Count instances currently on layer
-            current_clips = api.get_layer_clips(layer)
-            layer_counts = Counter(
-                Path(c["path"]).name for c in current_clips if c["path"]
-            )
-            for filename, snap_count in snap_counts.items():
-                layer_count = layer_counts.get(filename, 0)
-                extras = snap_count - layer_count
-                if extras <= 0:
-                    continue
-                # Find source file path from current layer
-                source_path = next(
-                    (c["path"] for c in current_clips
-                     if c["path"] and Path(c["path"]).name == filename),
-                    None,
-                )
-                if not source_path:
-                    continue
-                # Get original slot positions from snapshot
-                original_slots = [
-                    e["slot"] for e in snap
-                    if e.get("filename") == filename and e.get("slot") is not None
-                ]
-                # Exclude slots already occupied by this file
-                occupied_slots = {
-                    c["slot"] for c in current_clips
-                    if c["path"] and Path(c["path"]).name == filename
-                }
-                preferred_slots = [s for s in original_slots if s not in occupied_slots]
-
-                # Grow columns if needed
-                max_slot = max(original_slots) if original_slots else 0
-                total_needed = max(max_slot, len(current_clips) + extras)
-                api.grow_columns(total_needed)
-
-                # Open extra copies
-                for i in range(extras):
-                    if preferred_slots:
-                        slot = preferred_slots.pop(0)
-                    else:
-                        # Find next empty slot
-                        refreshed = api.get_layer_clips(layer)
-                        occupied = {c["slot"] for c in refreshed if c["path"]}
-                        slot = next(
-                            (c["slot"] for c in refreshed if c["slot"] not in occupied),
-                            len(refreshed) + 1,
-                        )
-                    try:
-                        api.open_clip(layer, slot, source_path)
-                    except Exception as exc:
-                        log(f"    Warning: could not recreate duplicate in slot {slot}: {exc}")
-                log(f"  Recreated {extras} duplicate(s) of {filename}")
+            recreate_duplicates(api, layer, snap, logger=log)
 
         # 3) Auto-restore returning clips (only the ones that were re-added)
         #    Re-read snap in case duplicates were added above
@@ -1079,8 +1128,8 @@ def watch_folder(api: ArenaAPI, folder: str, layer: int, stop_flag=None,
                 post_snap = snapshot_layer(api, layer)
                 snapshot_saver(merge_snapshots(current_snap, post_snap))
                 log(f"  Auto-saved settings after sync")
-            except Exception:
-                pass
+            except Exception as exc:
+                log(f"  Warning: post-sync snapshot failed: {exc}")
 
         return result
 
@@ -1196,8 +1245,9 @@ def _list_avc_files(folder: str) -> list:
     if platform.system() == "Darwin":
         # macOS: osascript bypasses TCC restrictions on ~/Documents
         try:
-            escaped = folder.replace("\\", "\\\\").replace('"', '\\"')
-            script = f'do shell script "ls \\"{escaped}\\""'
+            import shlex
+            escaped = shlex.quote(folder)
+            script = f'do shell script "ls {escaped}"'
             result = subprocess.run(
                 ["osascript", "-e", script],
                 capture_output=True, text=True, timeout=10,
@@ -1317,7 +1367,7 @@ def create_web_app(desktop_mode=False):
             "id": s["id"],
             "name": s["name"],
             "mappings": [
-                {"id": m["id"], "folder": m["folder"], "layer": m["layer"], "watching": m["watching"]}
+                {"id": m["id"], "folder": m["folder"], "layer": m["layer"], "watching": m.get("watching", False)}
                 for m in s["mappings"]
             ],
             "has_snapshots": bool(s.get("snapshots")),
@@ -1577,7 +1627,10 @@ def create_web_app(desktop_mode=False):
     def connect():
         data = flask_request.get_json(silent=True) or {}
         host = data.get("host", "127.0.0.1")
-        port = int(data.get("port", 8080))
+        try:
+            port = int(data.get("port", 8080))
+        except (ValueError, TypeError):
+            return jsonify({"ok": False, "error": "Invalid port number"}), 400
         try:
             _state["api"] = ArenaAPI(host=host, port=port)
             _state["host"] = host
@@ -1639,6 +1692,8 @@ def create_web_app(desktop_mode=False):
         s = _find_set(set_id)
         if not s:
             return jsonify({"ok": False, "error": "Set not found"}), 404
+        if len(_state["sets"]) <= 1:
+            return jsonify({"ok": False, "error": "Cannot delete the last set"}), 400
         # Stop all watchers in this set
         for m in s["mappings"]:
             m["watching"] = False
@@ -1817,8 +1872,8 @@ def create_web_app(desktop_mode=False):
                 s["snapshots"][layer_key] = merge_snapshots(old_snap, pre_snap)
                 clip_count = sum(1 for e in pre_snap if e["filename"])
                 log(f"  Auto-saved settings before sync ({clip_count} clips)")
-            except Exception:
-                pass  # don't block sync if snapshot fails
+            except Exception as exc:
+                log(f"  Warning: pre-sync snapshot failed: {exc}")
 
             # For non-force sync, build layer_snap after merge
             if not force:
@@ -1832,20 +1887,17 @@ def create_web_app(desktop_mode=False):
                 force_full=force, snapshot=layer_snap,
             )
 
-            # 2b) After force sync, re-create generated sources from snapshot
-            #     Include remembered sources — they become remembered after merge
-            #     since they're never in the folder, but we still want them restored.
+            # 2a) After force sync, recreate duplicate clips and generated
+            #     sources, then restore ALL saved settings.
             if force and layer_snap:
-                source_entries = [
-                    e for e in layer_snap
-                    if e.get("source_name") and e.get("data") and e.get("slot")
-                ]
-                if source_entries:
-                    log(f"  Restoring {len(source_entries)} generated source(s)...")
-                    restore_snapshot(
-                        _state["api"], m["layer"], layer_snap,
-                        include_remembered=True,
-                    )
+                recreate_duplicates(
+                    _state["api"], m["layer"], layer_snap, logger=log,
+                )
+                log(f"  Restoring all saved settings...")
+                restore_snapshot(
+                    _state["api"], m["layer"], layer_snap,
+                    include_remembered=True,
+                )
 
             # Rename layer to folder name if option is enabled
             if _state["options"].get("rename_layers"):
@@ -1867,8 +1919,8 @@ def create_web_app(desktop_mode=False):
                     s["snapshots"].get(layer_key), post_snap,
                 )
                 log(f"  Auto-saved settings after sync")
-            except Exception:
-                pass
+            except Exception as exc:
+                log(f"  Warning: post-sync snapshot failed: {exc}")
 
             _save()
             sf = _state["options"].get("snapshot_folder", "")
@@ -2193,7 +2245,8 @@ def create_web_app(desktop_mode=False):
                     existing[layer]["folder"] = str(layer_folder)
                 else:
                     new_m = {"id": _next_id(), "folder": str(layer_folder),
-                             "layer": layer}
+                             "layer": layer, "watching": False,
+                             "watch_thread": None}
                     s["mappings"].append(new_m)
                     existing[layer] = new_m
             except Exception as e:
