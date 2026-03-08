@@ -12,8 +12,9 @@ Usage:
 import os
 import platform
 import socket
-import sys
 import threading
+import time
+import urllib.request
 
 import webview
 
@@ -88,15 +89,74 @@ def main():
     url = f"http://127.0.0.1:{port}"
     log(f"  Desktop mode: Flask running on {url}")
 
+    # Wait for Flask to be ready before opening the window
+    for _ in range(50):  # up to 5 seconds
+        try:
+            urllib.request.urlopen(url, timeout=1)
+            break
+        except Exception:
+            time.sleep(0.1)
+
     use_tray = _can_use_tray()
+
+    # -- Expose Python helpers to JavaScript (window.pywebviewApi) --
+    class Api:
+        def pick_folder(self, start_path=""):
+            """Open a native folder-picker dialog.
+
+            Returns the selected folder path, or None if cancelled.
+            Uses the OS file dialog which has proper macOS TCC access
+            (~/Documents, ~/Desktop, etc.).
+            """
+            result = window.create_file_dialog(
+                webview.FOLDER_DIALOG,
+                directory=start_path or "",
+            )
+            if result and len(result) > 0:
+                return result[0]
+            return None
+
+        def pick_avc_file(self, start_path=""):
+            """Open a native file-picker dialog filtered to .avc files.
+
+            Returns the selected file path, or None if cancelled.
+            """
+            result = window.create_file_dialog(
+                webview.OPEN_DIALOG,
+                directory=start_path or "",
+                file_types=("Arena Composition (*.avc)",),
+            )
+            if result and len(result) > 0:
+                return result[0]
+            return None
+
+        def list_avc_files(self, folder):
+            """List .avc composition names in a folder.
+
+            Uses os.listdir which gets TCC access when the app was
+            launched via the native window (inherited from NSOpenPanel
+            grants or Full Disk Access).  Falls back gracefully.
+            """
+            import os
+            try:
+                names = []
+                for name in sorted(os.listdir(folder)):
+                    if name.lower().endswith(".avc") and not name.startswith("."):
+                        names.append(name[:-4])  # strip .avc
+                return names
+            except (PermissionError, FileNotFoundError, OSError):
+                return []
+
+    js_api = Api()
 
     # Create the native window
     window = webview.create_window(
         "Arena Watchfolder",
         url,
-        width=780,
-        height=700,
-        min_size=(600, 500),
+        width=1200,
+        height=800,
+        min_size=(800, 500),
+        js_api=js_api,
     )
 
     if use_tray:

@@ -12,7 +12,9 @@
     background: #1a1a2e;
     color: #e0e0e0;
     min-height: 100vh;
-    padding: 24px;
+    padding: 20px;
+    -webkit-user-select: text !important;
+    user-select: text !important;
   }
 
   h1 { font-size: 20px; font-weight: 600; color: #fff; letter-spacing: 0.5px; }
@@ -22,8 +24,8 @@
     background: #16213e;
     border: 1px solid #2a2a4a;
     border-radius: 10px;
-    padding: 20px;
-    margin-bottom: 16px;
+    padding: 18px;
+    margin-bottom: 14px;
   }
 
   .card-title {
@@ -32,7 +34,7 @@
     text-transform: uppercase;
     letter-spacing: 1px;
     color: #8888aa;
-    margin-bottom: 14px;
+    margin-bottom: 12px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -99,21 +101,25 @@
   #log-output {
     background: #0f1729; border: 1px solid #2a2a4a; border-radius: 6px;
     padding: 12px; font-family: "SF Mono", "Fira Code", "Cascadia Code", Menlo, monospace;
-    font-size: 12px; line-height: 1.6; height: 220px; overflow-y: auto; color: #a0a0c0;
+    font-size: 12px; line-height: 1.6; height: 200px; overflow-y: auto; color: #a0a0c0;
+    user-select: text; -webkit-user-select: text; cursor: text;
   }
   #log-output .line { padding: 1px 0; }
   #log-output .time { color: #555; }
   #log-output .error { color: #e05555; }
 
-  .container { max-width: 720px; margin: 0 auto; }
-  .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+  .container { max-width: 1200px; margin: 0 auto; }
+  .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+
+  .two-col { display: grid; grid-template-columns: 340px 1fr; gap: 14px; align-items: start; }
+  @media (max-width: 800px) { .two-col { grid-template-columns: 1fr; } }
 
   /* --- Mapping cards --- */
   .mapping-card {
     background: #0f1729;
     border: 1px solid #2a2a4a;
     border-radius: 8px;
-    padding: 16px;
+    padding: 14px;
     margin-bottom: 10px;
     transition: border-color 0.2s;
   }
@@ -123,7 +129,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    margin-bottom: 12px;
+    margin-bottom: 10px;
   }
   .layer-badge {
     background: #7c83ff; color: #fff; font-size: 11px; font-weight: 700;
@@ -306,15 +312,26 @@
     <h3>Watch mode</h3>
     <p>Click <strong>Start Watch</strong> on a mapping to continuously monitor the folder. When you add or remove files, the layer updates automatically. The orange border and pulsing dot indicate active watching.</p>
 
+    <h3>Collect from Arena</h3>
+    <p>Use <strong>Collect</strong> to copy an Arena layer's clip files into your local folder, creating a local backup of your show. You can also use <strong>Collect All</strong> at the top to collect every layer at once into organized subfolders.</p>
+    <ul>
+      <li><strong>Collect</strong> (per mapping) &mdash; Copies clip files from the mapped Arena layer into the mapping's folder. Generated sources (Checkered, Lines, etc.) have no files to copy but are captured in the snapshot.</li>
+      <li><strong>Collect All</strong> &mdash; Scans all Arena layers and copies clips into <code>&lt;dest&gt;/&lt;composition&gt;/&lt;deck&gt;/&lt;layer&gt;/</code> subfolders, creating a mapping for each layer.</li>
+    </ul>
+
+    <h3>Generated sources</h3>
+    <p>Arena's built-in content generators (Solid Color, Checkered, Lines, Abstract Field, Gradient, etc.) are fully supported. When you collect or save settings, generated sources are captured with all their parameters &mdash; colors, density, grid size, rotation, etc.</p>
+    <p>When you <strong>Force Sync</strong> to a different layer, generated sources are automatically re-created in their original slots and their settings are restored. This means you can reorganise generators across layers just like regular video clips.</p>
+
     <h3>Save &amp; Restore settings</h3>
     <ul>
-      <li><strong>Save Settings</strong> &mdash; Takes a snapshot of all clip settings on the layer: effects and their parameters, transform, speed, direction, cue points, blend modes, and more.</li>
-      <li><strong>Restore Settings</strong> &mdash; Applies the last saved snapshot back to the clips. Clips are matched by filename, so if a clip returns after being removed, its settings come back too.</li>
+      <li><strong>Save All Settings</strong> &mdash; Takes a snapshot of all clip settings across every mapping at once: effects and their parameters, transform, speed, direction, cue points, blend modes, and more. Also captures generated source parameters. Saving all layers together keeps everything in sync.</li>
+      <li><strong>Restore Settings</strong> &mdash; Applies the last saved snapshot back to the clips on a specific layer. Clips are matched by filename, generated sources by slot position. If a clip returns after being removed, its settings come back too.</li>
     </ul>
     <p>Settings are also saved/restored automatically when switching sets.</p>
 
     <h3>What gets saved</h3>
-    <p>Effects (Blur, Color Balance, etc.) with all parameter values, Transform (position, scale, rotation), speed &amp; direction, cue points (in/out), play mode (autopilot), beat loop, opacity, resize mode, audio (volume, pan), clip name, trigger style, transition, dashboard knobs, and more.</p>
+    <p>Effects (Blur, Color Balance, etc.) with all parameter values, Transform (position, scale, rotation), speed &amp; direction, cue points (in/out), play mode (autopilot), beat loop, opacity, resize mode, audio (volume, pan), clip name, trigger style, transition, dashboard knobs, <strong>source parameters</strong> (colors, density, grid size for generated sources), and more.</p>
 
     <h3>What is NOT saved</h3>
     <ul>
@@ -324,7 +341,14 @@
       <li><strong>Layer-level settings</strong> &mdash; layer effects, blend mode, opacity, and transitions are not captured (snapshots are per-clip only)</li>
       <li><strong>Composition settings</strong> &mdash; output resolution, FPS, etc. are not affected</li>
     </ul>
-    <p><em>In short: everything you set on a <strong>clip</strong> is saved. Everything set on the <strong>layer</strong> or <strong>composition</strong> is not.</em></p>
+    <p><em>In short: everything you set on a <strong>clip</strong> is saved &mdash; including generated sources with their parameters. Everything set on the <strong>layer</strong> or <strong>composition</strong> is not.</em></p>
+
+    <h3>Composition &amp; Deck lock</h3>
+    <p>Use these options to prevent accidental syncs to the wrong show:</p>
+    <ul>
+      <li><strong>Lock composition</strong> &mdash; Syncs are blocked if Arena has a different <code>.avc</code> file loaded.</li>
+      <li><strong>Lock deck</strong> &mdash; Syncs are blocked if a different deck is active. If the locked deck no longer exists (e.g. you opened a new composition), the lock auto-clears.</li>
+    </ul>
 
     <h3>Shutting down</h3>
     <p><strong>Always quit the app when you're done.</strong> If you leave it running in the background (especially in watch mode), it will keep syncing files to Arena. This can cause problems if you open a different composition, because the app may still be pushing clips to the old layer mappings.</p>
@@ -336,9 +360,14 @@
       <li>Use the <strong>&#9998; edit</strong> button on a mapping to change its folder path or layer number.</li>
       <li>The <strong>Sync All</strong> button (top right of the mappings card) syncs every mapping in the current set at once.</li>
       <li>When clips return to a layer after re-syncing, you'll be asked whether to restore their previous settings or keep them fresh.</li>
+      <li>Generated sources survive the full <strong>Collect &rarr; Force Sync &rarr; Restore</strong> round-trip, including custom colors, grid sizes, and effects.</li>
       <li><strong>Always use local folders</strong> for your media &mdash; never point mappings directly at a network share. If you collaborate remotely, use a synced folder (Dropbox, Google Drive) so files land on your local drive first.</li>
     </ul>
   </div>
+
+  <div class="two-col">
+  <!-- ═══ LEFT COLUMN ═══ -->
+  <div class="col-left">
 
   <!-- Connection -->
   <div class="card">
@@ -368,6 +397,105 @@
         <input type="checkbox" id="opt-rename-layers" onchange="toggleOption('rename_layers', this.checked)">
         Rename layers to folder name
       </label>
+    </div>
+
+    <div class="sep"></div>
+
+    <!-- Composition Lock -->
+    <div style="margin-bottom:8px;">
+      <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:13px;" title="When enabled, syncs are blocked if Arena has a different composition loaded">
+        <input type="checkbox" id="opt-comp-lock" onchange="toggleCompLock(this.checked)">
+        Composition lock
+      </label>
+    </div>
+    <div id="comp-lock-details" style="display:none; margin-left:22px;">
+      <div class="row" style="margin-bottom:8px;">
+        <div class="field">
+          <label>Locked to composition</label>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <select id="comp-lock-select" onchange="setLockedComposition(this.value)" style="flex:1;min-width:0;">
+              <option value="">-- Select --</option>
+            </select>
+            <button class="small" id="pick-avc-btn" style="display:none;white-space:nowrap;flex-shrink:0;" onclick="pickAvcFile()" title="Pick .avc composition file from disk">Pick .avc</button>
+          </div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>Compositions folder</label>
+          <div style="display:flex;gap:6px;">
+            <input type="text" id="comp-folder" placeholder="/path/to/Resolume Arena/Compositions" style="flex:1;min-width:0;font-size:12px;">
+            <button class="small secondary" style="white-space:nowrap;flex-shrink:0;" onclick="openBrowser('comp-folder')" title="Browse">Browse</button>
+            <button class="small secondary" style="white-space:nowrap;flex-shrink:0;" onclick="saveCompFolder()" title="Save folder path">Set</button>
+          </div>
+        </div>
+      </div>
+      <div id="comp-lock-status" style="font-size:12px;color:#888;margin-top:6px;"></div>
+    </div>
+
+    <!-- Deck Lock (visible when connected, independent of composition lock) -->
+    <div id="deck-lock-section" style="margin-top:8px; display:none;">
+      <div style="margin-bottom:4px;">
+        <label style="font-size:13px; color:#e0e0e0;">Deck lock</label>
+      </div>
+      <div class="row" style="margin-bottom:4px;">
+        <div class="field">
+          <div style="display:flex;gap:6px;align-items:center;">
+            <select id="deck-lock-select" onchange="setLockedDeck(this.value)" style="flex:1;">
+              <option value="">-- Any deck --</option>
+            </select>
+            <button class="small secondary" onclick="loadDecks()" title="Refresh deck list">↻</button>
+          </div>
+          <div class="help-text" style="margin-top:2px;">Syncs are blocked if Arena has a different deck selected. Leave on "Any deck" to allow syncing regardless of the active deck. If the locked deck no longer exists (e.g. new composition), the lock auto-clears.</div>
+        </div>
+      </div>
+      <div id="deck-lock-status" style="font-size:12px;color:#888;"></div>
+    </div>
+
+    <div class="sep"></div>
+
+    <!-- Snapshot Folder -->
+    <div style="margin-bottom:4px;">
+      <label style="font-size:13px; color:#e0e0e0;">Snapshot file location</label>
+      <div class="help-text" style="margin-top:2px;margin-bottom:6px;">Save all layer snapshots to a combined file for backup or sharing across machines. Leave empty to disable.</div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <div style="display:flex;gap:6px;">
+          <input type="text" id="snapshot-folder" placeholder="/path/to/shared/folder" style="flex:1;font-size:12px;">
+          <button class="small secondary" onclick="openBrowser('snapshot-folder')" title="Browse">Browse</button>
+          <button class="small secondary" onclick="saveSnapshotFolder()" title="Save snapshot folder path">Set</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  </div><!-- /col-left -->
+
+  <!-- ═══ RIGHT COLUMN ═══ -->
+  <div class="col-right">
+
+  <!-- Save All Settings -->
+  <div class="card" id="card-snapshot-all" style="display:none;">
+    <div class="card-title">
+      <span>Save &amp; Restore</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <button onclick="snapshotAll(this)" id="btn-snapshot-all" title="Save a snapshot of all clip settings across every mapping — effects, transform, speed, cue points, blend modes, and generated source parameters (colors, density, etc.)">Save All Settings</button>
+      <span class="help-text" style="margin:0;">Saves effects, transform, speed, cue points, blend modes, generated source parameters and more for all clips across all mappings at once.</span>
+    </div>
+  </div>
+
+  <!-- Collect from Arena -->
+  <div class="card" id="card-collect" style="display:none;">
+    <div class="card-title">
+      <span>Collect from Arena</span>
+    </div>
+    <div class="help-text" style="margin-top:0;margin-bottom:8px;">Scans all Arena layers and copies clip files into organized folders. Creates <code>&lt;dest&gt;/&lt;composition&gt;/&lt;deck&gt;/&lt;layer&gt;/</code> with a mapping per layer. Generated sources (Checkered, Lines, etc.) are saved in the snapshot.</div>
+    <div style="display:flex;gap:6px;align-items:center;">
+      <input type="text" id="collect-destination" placeholder="/path/to/destination" style="flex:1;font-size:13px;">
+      <button class="small secondary" onclick="openBrowser('collect-destination')">Browse</button>
+      <button onclick="collectAll(this)" id="btn-collect-all" title="Copy all clip files from Arena into organized folders. Generated sources (Checkered, Lines, etc.) are captured in snapshots but have no files to copy.">Collect All</button>
     </div>
   </div>
 
@@ -427,6 +555,9 @@
     <div class="card-title">Log</div>
     <div id="log-output"></div>
   </div>
+
+  </div><!-- /col-right -->
+  </div><!-- /two-col -->
 </div>
 
 <!-- Folder browser modal -->
@@ -522,6 +653,8 @@
       const opts = await res.json();
       document.getElementById("opt-rename-layers").checked = !!opts.rename_layers;
     } catch (e) {}
+    // Load composition lock & snapshot folder
+    await loadCompLock();
   }
 
   async function toggleOption(key, value) {
@@ -530,6 +663,217 @@
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ [key]: value }),
+      });
+    } catch (e) {}
+  }
+
+  // ─── Composition Lock ───
+  async function loadCompLock() {
+    try {
+      const res = await fetch("/api/composition-lock");
+      const data = await res.json();
+      document.getElementById("opt-comp-lock").checked = !!data.enabled;
+      document.getElementById("comp-lock-details").style.display = data.enabled ? "" : "none";
+      document.getElementById("comp-folder").value = data.compositions_folder || "";
+      document.getElementById("snapshot-folder").value = data.snapshot_folder || "";
+      if (data.enabled && data.locked_composition) {
+        document.getElementById("comp-lock-status").textContent = `Locked to "${data.locked_composition}"`;
+      } else {
+        document.getElementById("comp-lock-status").textContent = "";
+      }
+      await loadCompositions(data.locked_composition);
+      // Always load decks (section auto-hides if ≤1 deck)
+      await loadDecks();
+    } catch (e) {}
+  }
+
+  async function loadCompositions(selected) {
+    const pickBtn = document.getElementById("pick-avc-btn");
+    const sel = document.getElementById("comp-lock-select");
+
+    // 1) Fetch from backend — includes Arena's current composition + folder scan
+    let compositions = [];
+    let currentArenaComp = null;
+    let folder = "";
+    try {
+      const res = await fetch("/api/compositions");
+      const data = await res.json();
+      compositions = data.compositions || [];
+      currentArenaComp = data.current || null;
+      folder = data.folder || "";
+    } catch (e) {
+      console.error("loadCompositions fetch error:", e);
+    }
+
+    // 2) If backend returned no files (TCC), try native pywebview listing
+    if (compositions.length === 0 && folder && window.pywebview?.api?.list_avc_files) {
+      try {
+        const nativeList = await window.pywebview.api.list_avc_files(folder);
+        if (nativeList && nativeList.length > 0) {
+          compositions = nativeList;
+        }
+      } catch (e) {
+        console.error("Native list_avc_files failed:", e);
+      }
+    }
+
+    // 3) Build a unique list: folder scan + current Arena comp + saved selection
+    const names = new Set(compositions);
+    if (currentArenaComp) names.add(currentArenaComp);
+    if (selected) names.add(selected);
+
+    // 4) Populate dropdown
+    sel.innerHTML = '<option value="">-- Select --</option>';
+    // Add "current in Arena" option prominently if connected
+    if (currentArenaComp) {
+      const opt = document.createElement("option");
+      opt.value = currentArenaComp;
+      opt.textContent = currentArenaComp + " (current)";
+      if (currentArenaComp === selected) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    // Add remaining compositions from folder scan (skip if already added as current)
+    for (const name of [...names].sort()) {
+      if (name === currentArenaComp) continue; // already added above
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      if (name === selected) opt.selected = true;
+      sel.appendChild(opt);
+    }
+
+    console.log("loadCompositions:", { compositions, currentArenaComp, selected, totalOptions: names.size });
+
+    // Show native file picker button when pywebviewApi is available
+    if (window.pywebview?.api?.pick_avc_file) {
+      pickBtn.style.display = "";
+    }
+  }
+
+  async function pickAvcFile() {
+    const folder = document.getElementById("comp-folder").value.trim() || "";
+    const startDir = folder || "";
+    // Use native dialog if available, otherwise prompt for name
+    if (window.pywebview?.api?.pick_avc_file) {
+      try {
+        const path = await window.pywebview.api.pick_avc_file(startDir);
+        if (path) {
+          const parts = path.replace(/\\/g, "/").split("/");
+          let name = parts[parts.length - 1];
+          if (name.toLowerCase().endsWith(".avc")) name = name.slice(0, -4);
+          await setLockedComposition(name);
+          const dir = parts.slice(0, -1).join("/");
+          document.getElementById("comp-folder").value = dir;
+          await saveCompFolder();
+        }
+      } catch (e) {
+        console.error("Native file picker failed:", e);
+      }
+    } else {
+      const name = prompt("Enter composition name:");
+      if (name) await setLockedComposition(name.trim());
+    }
+  }
+
+  async function toggleCompLock(enabled) {
+    document.getElementById("comp-lock-details").style.display = enabled ? "" : "none";
+    try {
+      await fetch("/api/composition-lock", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      if (enabled) await loadCompLock();
+    } catch (e) {}
+  }
+
+  async function setLockedComposition(name) {
+    try {
+      await fetch("/api/composition-lock", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: true, composition: name }),
+      });
+      document.getElementById("comp-lock-status").textContent = name ? `Locked to "${name}"` : "";
+      // Reload decks when composition changes (different compositions may have different decks)
+      await loadDecks();
+    } catch (e) {}
+  }
+
+  // ─── Deck Lock ───
+  async function loadDecks() {
+    const section = document.getElementById("deck-lock-section");
+    const sel = document.getElementById("deck-lock-select");
+    const status = document.getElementById("deck-lock-status");
+    let decks = [];
+    let lockedDeck = null;
+    try {
+      const res = await fetch("/api/decks");
+      const data = await res.json();
+      decks = data.decks || [];
+      lockedDeck = data.locked_deck || null;
+    } catch (e) {
+      console.error("loadDecks error:", e);
+    }
+
+    // Only show deck section if composition has multiple decks
+    if (decks.length <= 1) {
+      section.style.display = "none";
+      return;
+    }
+    section.style.display = "";
+
+    sel.innerHTML = '<option value="">-- Any deck --</option>';
+    const currentDeck = decks.find(d => d.selected);
+    for (const deck of decks) {
+      const opt = document.createElement("option");
+      opt.value = deck.name;
+      opt.textContent = deck.name + (deck.selected ? " (active)" : "");
+      if (deck.name === lockedDeck) opt.selected = true;
+      sel.appendChild(opt);
+    }
+
+    if (lockedDeck) {
+      const isActive = currentDeck && currentDeck.name === lockedDeck;
+      status.textContent = isActive
+        ? `Deck "${lockedDeck}" is active ✓`
+        : `⚠ Deck "${lockedDeck}" is NOT active — syncs blocked`;
+      status.style.color = isActive ? "#4caf50" : "#ff9800";
+    } else {
+      status.textContent = "";
+    }
+  }
+
+  async function setLockedDeck(name) {
+    try {
+      await fetch("/api/deck-lock", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deck: name || null }),
+      });
+      await loadDecks();
+    } catch (e) {}
+  }
+
+  async function saveCompFolder() {
+    const folder = document.getElementById("comp-folder").value.trim();
+    try {
+      await fetch("/api/compositions-folder", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ folder }),
+      });
+      await loadCompLock();
+    } catch (e) {}
+  }
+
+  async function saveSnapshotFolder() {
+    const folder = document.getElementById("snapshot-folder").value.trim();
+    try {
+      await fetch("/api/snapshot-folder", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ folder }),
       });
     } catch (e) {}
   }
@@ -551,7 +895,10 @@
     } catch (e) { connected = false; }
     updateConnectionUI();
     btn.disabled = false; btn.textContent = "Connect";
-    if (connected) renderMappings(); // re-enable buttons
+    if (connected) {
+      renderMappings(); // re-enable buttons
+      await loadCompLock(); // reload compositions dropdown now that Arena is connected
+    }
   }
 
   function updateConnectionUI() {
@@ -594,15 +941,17 @@
   }
 
   async function createSet() {
-    const name = prompt("New set name:");
-    if (!name) return;
     try {
-      await fetch("/api/sets", {
+      const res = await fetch("/api/sets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name: "New Set", activate: true }),
       });
-      await loadState();
+      const data = await res.json();
+      if (data.ok) {
+        await loadState();
+        renameSet();
+      }
     } catch (e) {}
   }
 
@@ -646,14 +995,21 @@
     const list = document.getElementById("mappings-list");
     const activeSet = state.sets.find(s => s.id === state.active_set_id);
     const syncAllBtn = document.getElementById("btn-sync-all");
+    const snapCard = document.getElementById("card-snapshot-all");
+    const collectCard = document.getElementById("card-collect");
+
+    // Collect card is always visible when connected (works without mappings)
+    collectCard.style.display = connected ? "" : "none";
 
     if (!activeSet || !activeSet.mappings.length) {
-      list.innerHTML = '<div class="empty-state">No folder mappings yet.<br>Click "+ Add Folder Mapping" below to map a media folder to an Arena layer.</div>';
+      list.innerHTML = '<div class="empty-state">No folder mappings yet.<br>Click "+ Add Folder Mapping" below to map a media folder to an Arena layer, or use "Collect All" above to collect from Arena and create mappings automatically.</div>';
       syncAllBtn.style.display = "none";
+      snapCard.style.display = "none";
       return;
     }
 
     syncAllBtn.style.display = connected ? "" : "none";
+    snapCard.style.display = connected ? "" : "none";
     list.innerHTML = "";
 
     for (const m of activeSet.mappings) {
@@ -681,12 +1037,13 @@
         </div>
         <div class="mapping-actions">
           <button class="small" onclick="syncMapping('${m.id}', this)" ${!connected ? 'disabled' : ''} title="Sync this folder to its Arena layer — adds new files, removes deleted ones, keeps existing clips untouched">Sync Now</button>
+          <button class="small" style="background:#8B5E3C;" onclick="forceSyncMapping('${m.id}', this)" ${!connected ? 'disabled' : ''} title="Clear ALL clips from this layer and reload everything from scratch. Restores generated sources and all saved settings. Use after Collect to re-link Arena to the new file paths.">Force Sync</button>
           ${!w
             ? `<button class="small success" onclick="startWatch('${m.id}')" ${!connected ? 'disabled' : ''} title="Continuously monitor this folder and auto-sync when files change">Start Watch</button>`
             : `<button class="small danger" onclick="stopWatch('${m.id}')" title="Stop monitoring this folder">Stop Watch</button>`
           }
-          <button class="small secondary" onclick="snapshotMapping('${m.id}', this)" ${!connected ? 'disabled' : ''} title="Save a snapshot of all clip settings on this layer (effects, transform, speed, cue points, blend modes)">Save Settings</button>
           <button class="small secondary" onclick="restoreMapping('${m.id}')" ${!connected ? 'disabled' : ''} title="Restore clip settings from the last snapshot — clips are matched by filename">Restore Settings</button>
+          <button class="small secondary" onclick="collectMapping('${m.id}', this)" ${!connected ? 'disabled' : ''} title="Copy clip files from Arena into this mapping's folder. Generated sources are captured in the snapshot (no files to copy, but their settings are saved).">Collect</button>
         </div>
       `;
       list.appendChild(card);
@@ -762,7 +1119,9 @@
     try {
       const res = await fetch(`/api/mappings/${id}/sync`, { method: "POST" });
       const data = await res.json();
-      if (data.returning && data.returning.length > 0) {
+      if (!data.ok && data.error) {
+        alert(data.error);
+      } else if (data.returning && data.returning.length > 0) {
         showReturningModal(id, data.returning);
       }
     } catch (e) {}
@@ -779,7 +1138,9 @@
 
   async function startWatch(id) {
     try {
-      await fetch(`/api/mappings/${id}/watch/start`, { method: "POST" });
+      const res = await fetch(`/api/mappings/${id}/watch/start`, { method: "POST" });
+      const data = await res.json();
+      if (!data.ok && data.error) alert(data.error);
       await loadState();
     } catch (e) {}
   }
@@ -791,12 +1152,16 @@
     } catch (e) {}
   }
 
-  async function snapshotMapping(id, btn) {
+  async function snapshotAll(btn) {
     if (btn) { btn.disabled = true; btn.textContent = "Saving..."; }
     try {
-      await fetch(`/api/mappings/${id}/snapshot`, { method: "POST" });
+      const r = await fetch("/api/snapshot", { method: "POST" });
+      const data = await r.json();
+      if (data.ok) {
+        log(`Snapshot saved: ${data.clips} clips across ${data.layers} layer(s)`);
+      }
     } catch (e) {}
-    if (btn) { btn.disabled = false; btn.textContent = "Save Settings"; }
+    if (btn) { btn.disabled = false; btn.textContent = "Save All Settings"; }
   }
 
   async function restoreMapping(id) {
@@ -806,9 +1171,101 @@
     } catch (e) {}
   }
 
+  // ─── Force Sync ───
+
+  async function forceSyncMapping(id, btn) {
+    if (!confirm(
+      "Force Sync will CLEAR all clips from this layer and reload from the folder.\n\n" +
+      "Effects and settings will be temporarily lost.\n" +
+      "Use 'Restore Settings' afterward to bring them back.\n\nContinue?"
+    )) return;
+    if (btn) { btn.disabled = true; btn.textContent = "Syncing..."; }
+    try {
+      const res = await fetch(`/api/mappings/${id}/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ force: true }),
+      });
+      const data = await res.json();
+      if (!data.ok && data.error) alert(data.error);
+      else if (data.returning && data.returning.length > 0) showReturningModal(id, data.returning);
+    } catch (e) {}
+    if (btn) { btn.disabled = false; btn.textContent = "Force Sync"; }
+  }
+
+  // ─── Collect ───
+
+  async function collectAll(btn) {
+    const dest = document.getElementById("collect-destination").value.trim();
+    if (!dest) { alert("Enter a destination folder or use Browse."); return; }
+    if (!confirm(
+      "Copy all clip files from Arena layers into:\n\n" +
+      dest + "/<composition>/<deck>/<layer>/\n\n" +
+      "Mappings will be updated to point to the new folders. Continue?"
+    )) return;
+    if (btn) { btn.disabled = true; btn.textContent = "Collecting..."; }
+    try {
+      const res = await fetch("/api/collect-all", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ destination: dest }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        alert(data.error || "Collect failed");
+      } else {
+        const errs = data.results.filter(r => r.errors.length > 0);
+        let msg = `Collected ${data.total_copied} files.`;
+        if (errs.length) msg += ` ${errs.length} layer(s) had errors — check the log.`;
+        alert(msg);
+        await loadState();
+      }
+    } catch (e) { alert("Network error: " + e); }
+    if (btn) { btn.disabled = false; btn.textContent = "Collect All"; }
+  }
+
+  async function collectMapping(id, btn) {
+    if (!confirm("Copy clip files from Arena into this mapping's folder?")) return;
+    if (btn) { btn.disabled = true; btn.textContent = "Collecting..."; }
+    try {
+      const res = await fetch(`/api/mappings/${id}/collect`, { method: "POST" });
+      const data = await res.json();
+      if (!data.ok) {
+        alert(data.error || "Collect failed");
+      } else {
+        let parts = [];
+        if (data.copied) parts.push(`${data.copied} file(s) copied`);
+        if (data.sources) parts.push(`${data.sources} source(s) snapshotted`);
+        if (!data.copied && !data.sources) parts.push("No clips found");
+        if (data.skipped) parts.push(`${data.skipped} empty slot(s) skipped`);
+        if (data.errors && data.errors.length) parts.push(`${data.errors.length} error(s) — check the log`);
+        log(parts.join(". ") + ".");
+      }
+    } catch (e) {}
+    if (btn) { btn.disabled = false; btn.textContent = "Collect"; }
+  }
+
   // ─── Folder browser ───
-  function openBrowser(inputId) {
+  async function openBrowser(inputId) {
     browserTargetInput = document.getElementById(inputId);
+
+    // Desktop mode: use native OS folder dialog (has proper macOS TCC access)
+    if (window.pywebview?.api?.pick_folder) {
+      const startPath = browserTargetInput.value.trim() || "";
+      try {
+        const path = await window.pywebview.api.pick_folder(startPath);
+        if (path) {
+          browserTargetInput.value = path;
+          browserTargetInput.dispatchEvent(new Event("change"));
+        }
+      } catch (e) {
+        console.error("Native folder picker failed:", e);
+      }
+      browserTargetInput = null;
+      return;
+    }
+
+    // Browser mode fallback: custom modal
     const startPath = browserTargetInput.value.trim() || "";
     document.getElementById("folder-browser").classList.add("active");
     navigateTo(startPath);
@@ -863,7 +1320,12 @@
         item.onclick = () => navigateTo(data.path + "/" + dir);
         list.appendChild(item);
       }
-      if (!data.dirs.length && !data.parent) {
+      if (data.permission_error && !data.dirs.length) {
+        const errEl = document.createElement("div");
+        errEl.style.cssText = "padding:20px;color:#e0a555;text-align:center;font-size:13px;";
+        errEl.textContent = "Permission denied — macOS restricts access to this folder. Type the path manually or run in desktop mode for native folder picker.";
+        list.appendChild(errEl);
+      } else if (!data.dirs.length && !data.parent) {
         list.innerHTML = '<div style="padding:20px;color:#555;text-align:center;">No subfolders</div>';
       }
     } catch (e) {
@@ -964,6 +1426,12 @@
   connectSSE();
   checkDesktopMode();
   loadState();
+
+  // pywebview injects window.pywebview.api AFTER page load.
+  // Re-run loadCompLock once it's ready so native buttons appear.
+  window.addEventListener("pywebviewready", () => {
+    loadCompLock();
+  });
 </script>
 </body>
 </html>

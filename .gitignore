@@ -27,6 +27,7 @@ watchfolder_config.json
 *.dmg
 *.exe
 *.msi
+*.spec
 
 # Docs (internal reference only)
 Docs/
