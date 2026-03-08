@@ -2370,14 +2370,56 @@ def main():
         description="Resolume Arena Watch Folder -- sync folders of media to layers",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
-Examples:
+Legacy mode:
   %(prog)s --folder ~/Videos/SetA --layer 2
-  %(prog)s --folder "C:\\Users\\VJ\\Clips" --layer 1 --watch
-  %(prog)s --folder /media/show --layer 3 --host 192.168.1.100 --port 8080 --watch
+  %(prog)s --folder ~/Videos/SetA --layer 2 --watch
   %(prog)s --ui
   %(prog)s --desktop
+
+Subcommands:
+  %(prog)s status                        Show connection & state
+  %(prog)s sets list                     List all sets
+  %(prog)s sets create "My Gig"          Create a new set
+  %(prog)s sets switch 2                 Switch to set 2
+  %(prog)s mappings list                 List folder-to-layer mappings
+  %(prog)s mappings add --folder ~/Vids --layer 1
+                                         Add a mapping
+  %(prog)s sync 3                        Sync mapping 3
+  %(prog)s sync 3 --force                Force full re-sync
+  %(prog)s sync-all                      Sync all mappings
+  %(prog)s watch 3                       Watch mapping 3 for changes
+  %(prog)s snapshot save                 Save all clip settings
+  %(prog)s snapshot restore 3            Restore settings for mapping 3
+  %(prog)s collect 3                     Collect Arena clips to folder
+  %(prog)s collect-all --destination ~/Backup
+                                         Collect all layers
+  %(prog)s lock composition "My Show"    Lock to a composition
+  %(prog)s lock deck "Deck 1"            Lock to a deck
+  %(prog)s config show                   Show configuration
+  %(prog)s config set host 192.168.1.10  Change Arena host
+
+Add --json to any subcommand for machine-readable output.
         """,
     )
+    # Global options
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Arena webserver host (default: 127.0.0.1)",
+    )
+    parser.add_argument(
+        "--port", "-p",
+        type=int,
+        default=8080,
+        help="Arena webserver port (default: 8080)",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output JSON (machine-readable, for LLM/scripting use)",
+    )
+
+    # Legacy flat flags
     parser.add_argument(
         "--folder", "-f",
         default=None,
@@ -2393,17 +2435,6 @@ Examples:
         "--watch", "-w",
         action="store_true",
         help="Keep running and auto-sync when folder contents change",
-    )
-    parser.add_argument(
-        "--host",
-        default="127.0.0.1",
-        help="Arena webserver host (default: 127.0.0.1)",
-    )
-    parser.add_argument(
-        "--port", "-p",
-        type=int,
-        default=8080,
-        help="Arena webserver port (default: 8080)",
     )
     parser.add_argument(
         "--dry-run",
@@ -2426,6 +2457,13 @@ Examples:
         action="store_true",
         help="Launch as desktop app with native window and system tray",
     )
+
+    # Register subcommands from cli.py
+    try:
+        from cli import build_subparsers
+        build_subparsers(parser)
+    except ImportError:
+        pass  # cli.py not available (e.g. in stripped bundle)
 
     args = parser.parse_args()
 
@@ -2464,51 +2502,67 @@ Examples:
         app.run(host="0.0.0.0", port=args.ui_port, debug=False, threaded=True)
         return
 
-    # --- CLI mode (original behavior) ---
-    if not args.folder:
-        parser.error("--folder is required (unless using --ui or --desktop)")
-    if args.layer is None:
-        parser.error("--layer is required (unless using --ui or --desktop)")
+    # --- Legacy CLI mode (--folder / --layer) ---
+    # Only enter legacy mode if no subcommand is present
+    command = getattr(args, "command", None)
+    if args.folder and not command:
+        if args.layer is None:
+            parser.error("--layer is required when using --folder")
 
-    print()
-    print("+" + "=" * 48 + "+")
-    print("|   Resolume Arena -- Watch Folder Sync            |")
-    print("+" + "=" * 48 + "+")
-    print()
-    print(f"  Folder : {Path(args.folder).resolve()}")
-    print(f"  Layer  : {args.layer}")
-    print(f"  Mode   : {'WATCH (continuous)' if args.watch else 'ONE-SHOT'}")
-    print(f"  Arena  : {args.host}:{args.port}")
-    print()
+        print()
+        print("+" + "=" * 48 + "+")
+        print("|   Resolume Arena -- Watch Folder Sync            |")
+        print("+" + "=" * 48 + "+")
+        print()
+        print(f"  Folder : {Path(args.folder).resolve()}")
+        print(f"  Layer  : {args.layer}")
+        print(f"  Mode   : {'WATCH (continuous)' if args.watch else 'ONE-SHOT'}")
+        print(f"  Arena  : {args.host}:{args.port}")
+        print()
 
-    if args.dry_run:
-        print("  *** DRY RUN MODE -- no changes will be made ***\n")
+        if args.dry_run:
+            print("  *** DRY RUN MODE -- no changes will be made ***\n")
+            try:
+                files = scan_folder(args.folder)
+            except ValueError as e:
+                print(f"ERROR: {e}")
+                sys.exit(1)
+            print(f"  Found {len(files)} media file(s):")
+            for f in files:
+                print(f"    . {Path(f).name}")
+            return
+
         try:
-            files = scan_folder(args.folder)
+            api = ArenaAPI(host=args.host, port=args.port)
+        except ArenaConnectionError as e:
+            print(f"ERROR: {e}")
+            sys.exit(1)
+
+        try:
+            if args.watch:
+                watch_folder(api, args.folder, args.layer)
+            else:
+                sync_folder_to_layer(api, args.folder, args.layer)
         except ValueError as e:
             print(f"ERROR: {e}")
             sys.exit(1)
-        print(f"  Found {len(files)} media file(s):")
-        for f in files:
-            print(f"    . {Path(f).name}")
+
+        print()
         return
 
-    try:
-        api = ArenaAPI(host=args.host, port=args.port)
-    except ArenaConnectionError as e:
-        print(f"ERROR: {e}")
-        sys.exit(1)
+    # --- Subcommand dispatch ---
+    command = getattr(args, "command", None)
+    if command:
+        try:
+            from cli import dispatch
+            dispatch(args)
+        except ImportError:
+            print("ERROR: cli.py not found. Subcommands require the full installation.")
+            sys.exit(1)
+        return
 
-    try:
-        if args.watch:
-            watch_folder(api, args.folder, args.layer)
-        else:
-            sync_folder_to_layer(api, args.folder, args.layer)
-    except ValueError as e:
-        print(f"ERROR: {e}")
-        sys.exit(1)
-
-    print()
+    # No flags and no subcommand — show help
+    parser.print_help()
 
 
 if __name__ == "__main__":
