@@ -13,6 +13,8 @@ import os
 import platform
 import socket
 import threading
+import time
+import urllib.request
 
 import webview
 
@@ -86,6 +88,14 @@ def main():
 
     url = f"http://127.0.0.1:{port}"
     log(f"  Desktop mode: Flask running on {url}")
+
+    # Wait for Flask to be ready before opening the window
+    for _ in range(50):  # up to 5 seconds
+        try:
+            urllib.request.urlopen(url, timeout=1)
+            break
+        except Exception:
+            time.sleep(0.1)
 
     use_tray = _can_use_tray()
 

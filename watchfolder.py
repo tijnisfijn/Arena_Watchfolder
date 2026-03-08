@@ -1290,7 +1290,12 @@ def create_web_app(desktop_mode=False):
     """Create and return the Flask application for the web UI."""
     from config import load_config, save_config
 
-    app = Flask(__name__)
+    # When running as a PyInstaller bundle, templates are in sys._MEIPASS
+    if getattr(sys, "frozen", False):
+        bundle_dir = Path(sys._MEIPASS)
+        app = Flask(__name__, template_folder=str(bundle_dir / "templates"))
+    else:
+        app = Flask(__name__)
 
     saved = load_config()
 
@@ -2423,6 +2428,10 @@ Examples:
     )
 
     args = parser.parse_args()
+
+    # Auto-enable desktop mode when running as a PyInstaller bundle
+    if getattr(sys, "frozen", False) and not args.ui:
+        args.desktop = True
 
     # --- Desktop mode ---
     if args.desktop:
