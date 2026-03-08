@@ -6,73 +6,29 @@
 
 Arena Watchfolder bridges the gap between your file system and Resolume Arena. Map a folder to a layer, and every video or image in that folder becomes a clip in Arena. Add a file, it appears. Remove a file, it disappears. Your effects, speed settings, cue points, and blend modes are preserved across every sync.
 
-## Why use this?
+## Download
 
-If you use Resolume Arena for live visuals, you know the pain: manually loading clips one by one, losing all your effect tweaks when you reload media, and having no easy way to switch between different media sets for different gigs.
+Grab the latest release — no Python or terminal needed:
 
-Arena Watchfolder solves this:
+**➜ [Download Arena Watchfolder](https://github.com/tijnisfijn/Arena_Watchfolder/releases/latest)**
 
-- **Gig prep made easy** — Organize media into folders per event, map each to a layer, and switch between them with one click. All your clip tweaks come back automatically.
-- **Live media updates** — Drop a new video into your folder mid-show and it appears in Arena within seconds. Remove a file and the clip disappears.
-- **Multi-layer setups** — Map different folders to different layers: backgrounds on layer 1, overlays on layer 2, text on layer 3. Sync them all at once.
-- **Clip memory** — Snapshot every clip setting (effects, speed, cue points, blend modes) and restore them later, even after switching compositions or restarting Arena.
-- **Safety locks** — Prevent accidental syncs when the wrong composition or deck is loaded.
-- **Collect from Arena** — Pull an existing Arena layer into a folder with one click, including all files and settings.
-
-## Quick Start
-
-> **Not familiar with Python?** Paste these instructions into any AI assistant (ChatGPT, Claude, Copilot) and ask it to walk you through the setup. You can also paste any error messages and it'll help fix them.
-
-### Requirements
-
-- **Python 3.10+** — [download here](https://www.python.org/downloads/) if you don't have it
-- **Resolume Arena 7.x+** with the web server enabled (Preferences > Webserver)
+| Platform | Status |
+|----------|--------|
+| **macOS** | ✅ Available now |
+| **Windows** | 🔜 Coming soon |
 
 ### Install
 
-**1. Download the project**
+1. Download the `.zip` from the link above
+2. Unzip it and drag **Arena Watchfolder.app** to your Applications folder (or anywhere you like)
+3. Double-click to launch — if macOS blocks it, right-click → **Open** → **Open**
 
-```bash
-git clone https://github.com/tijnisfijn/Arena_Watchfolder.git
-cd Arena_Watchfolder
-```
-
-Or click the green **Code** button on GitHub and choose **Download ZIP**, then extract it.
-
-**2. Create a virtual environment and install dependencies**
-
-macOS / Linux:
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-Windows:
-```bash
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-**3. Run it**
-
-```bash
-python watchfolder.py --ui
-```
-
-The web UI opens at `http://127.0.0.1:5000`. If port 5000 is taken (common on macOS due to AirPlay), use `--ui-port 5050`.
-
-> **Desktop app mode** (native window instead of browser tab):
-> ```bash
-> pip install pywebview pystray Pillow
-> python watchfolder.py --desktop
-> ```
+> **Requirement:** Resolume Arena must be running with the web server enabled (Preferences → Webserver).
 
 ### Your first sync
 
-1. Make sure Arena is running with the web server enabled (Preferences > Webserver)
-2. Start the app: `python watchfolder.py --ui`
+1. Make sure Arena is running with the web server enabled (Preferences → Webserver)
+2. Open Arena Watchfolder
 3. Click **Connect** — it should find Arena on `127.0.0.1:8080`
 4. Create a set (e.g. "My First Set") using the **New** button
 5. Click **Add Folder Mapping** and pick a folder with video files
@@ -83,6 +39,37 @@ The web UI opens at `http://127.0.0.1:5000`. If port 5000 is taken (common on ma
 10. Next time you sync, click **Restore Settings** to bring it all back
 
 For the full user manual — covering every panel, feature, workflow, and troubleshooting — see **[Docs/USER_MANUAL.md](Docs/USER_MANUAL.md)**.
+
+---
+
+## Running from source
+
+For developers and contributors who want to run from the repo directly.
+
+> **Not familiar with Python?** Paste these instructions into any AI assistant (ChatGPT, Claude, Copilot) and ask it to walk you through the setup.
+
+### Requirements
+
+- **Python 3.10+** — [download here](https://www.python.org/downloads/)
+- **Resolume Arena 7.x+** with the web server enabled (Preferences → Webserver)
+
+### Setup
+
+```bash
+git clone https://github.com/tijnisfijn/Arena_Watchfolder.git
+cd Arena_Watchfolder
+python3 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+python watchfolder.py --ui
+```
+
+The web UI opens at `http://127.0.0.1:5000`. Use `--ui-port 5050` if port 5000 is taken.
+
+> **Desktop app mode** (native window instead of browser tab):
+> ```bash
+> pip install pywebview pystray Pillow
+> python watchfolder.py --desktop
+> ```
 
 ## CLI Usage
 
@@ -111,16 +98,6 @@ python watchfolder.py --folder ~/Videos/MySet --layer 1 --dry-run
 | `--ui` | Launch web UI instead of CLI |
 | `--ui-port` | Web UI port (default: `5000`) |
 | `--desktop` | Launch as desktop app with native window |
-
-## Platform support
-
-| Platform | Status |
-|----------|--------|
-| **macOS** | Tested and working |
-| **Windows** | Should work — help wanted for testing |
-| **Linux** | Should work — help wanted for testing |
-
-The core sync logic is cross-platform (Python + REST API). If you try it on Windows or Linux, please open an issue with your experience — even "it works" is valuable feedback!
 
 ## License
 
