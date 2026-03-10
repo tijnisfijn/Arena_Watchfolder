@@ -19,6 +19,10 @@ Grab the latest release — no Python or terminal needed:
 | **macOS** | ✅ Available now |
 | **Windows** | ✅ Available now |
 
+> **Windows users:** The pre-built download is not code-signed, so Windows SmartScreen or your antivirus may show a warning. This is a false positive — the app is safe. You can click **More info → Run anyway** to proceed.
+>
+> Alternatively, you can **build it yourself from source** in under a minute — a self-built version won't trigger any warnings. Don't worry if you've never done this before: just paste the [setup instructions](#setup) below into any AI assistant (ChatGPT, Claude, Copilot) and it will walk you through every step.
+
 ### Install
 
 **macOS:**
