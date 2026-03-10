@@ -6,6 +6,8 @@
 
 Arena Watchfolder bridges the gap between your file system and Resolume Arena. Map a folder to a layer, and every video or image in that folder becomes a clip in Arena. Add a file, it appears. Remove a file, it disappears. Your effects, speed settings, cue points, and blend modes are preserved across every sync.
 
+> **A note from the maker:** I built this as a free tool for the Resolume community. It's vibe-coded and tested, and should be completely safe to use — but as with any tool that modifies your Arena composition, **always back up your `.avc` file before you start** and do some testing for your specific setup. Things may have slipped through testing. If you find any bugs, issues, or have feature requests, please [open an issue](https://github.com/tijnisfijn/Arena_Watchfolder/issues) — I'd love to hear from you!
+
 ## Download
 
 Grab the latest release — no Python or terminal needed:
