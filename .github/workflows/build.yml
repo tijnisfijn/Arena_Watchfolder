@@ -32,6 +32,15 @@ jobs:
       - name: Build with PyInstaller
         run: python build.py --clean
 
+      - name: Add documentation to release
+        shell: bash
+        run: |
+          cp "release-docs/User Manual.pdf" "dist/Arena Watchfolder/"
+          cp "release-docs/CLI Reference.md" "dist/Arena Watchfolder/"
+          cp "release-docs/README.txt" "dist/Arena Watchfolder/"
+          cp "release-docs/CHANGES.txt" "dist/Arena Watchfolder/"
+          cp "release-docs/LICENSE.txt" "dist/Arena Watchfolder/"
+
       - name: Upload unsigned artifact
         uses: actions/upload-artifact@v4
         with:
@@ -142,10 +151,20 @@ jobs:
       #       --wait
       #     xcrun stapler staple "$APP_PATH"
 
+      - name: Add documentation to release
+        run: |
+          mkdir -p "dist/Arena Watchfolder"
+          mv "dist/Arena Watchfolder.app" "dist/Arena Watchfolder/"
+          cp "release-docs/User Manual.pdf" "dist/Arena Watchfolder/"
+          cp "release-docs/CLI Reference.md" "dist/Arena Watchfolder/"
+          cp "release-docs/README.txt" "dist/Arena Watchfolder/"
+          cp "release-docs/CHANGES.txt" "dist/Arena Watchfolder/"
+          cp "release-docs/LICENSE.txt" "dist/Arena Watchfolder/"
+
       - name: Create ZIP for release
         run: |
           cd dist
-          ditto -c -k --keepParent "Arena Watchfolder.app" "../Arena-Watchfolder-macOS.zip"
+          ditto -c -k --keepParent "Arena Watchfolder" "../Arena-Watchfolder-macOS.zip"
 
       - name: Upload release ZIP
         uses: actions/upload-artifact@v4
