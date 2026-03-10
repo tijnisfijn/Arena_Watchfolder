@@ -16,6 +16,7 @@ env/
 *.swp
 *.swo
 .DS_Store
+._*
 
 # User config (persists sets, mappings, snapshots)
 watchfolder_config.json
@@ -34,6 +35,10 @@ Docs/
 
 # Large/unused assets
 banner.png
+
+# Test media and screenshots
+tmp/
+Screenshots/
 
 # Pip artifacts
 =*

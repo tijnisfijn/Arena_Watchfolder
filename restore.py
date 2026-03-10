@@ -64,13 +64,40 @@ def restore_snapshot(api, layer: int, snapshot: list[dict],
         and (include_remembered or not e.get("remembered"))
     ]
     if source_entries:
+        # Build set of occupied slots (file-based clips already on the layer)
+        current_clips = api.get_layer_clips(layer)
+        occupied_slots = {c["slot"] for c in current_clips
+                          if c["path"] or c["data"]}
+        total_slots = len(current_clips)
+
         log(f"  Re-creating {len(source_entries)} generated source(s)...")
         for entry in source_entries:
+            # Use source_type (actual Arena type) when available, fall back
+            # to source_name for backward compat with older snapshots.
+            open_name = entry.get("source_type") or entry["source_name"]
+            display_name = entry.get("source_name", open_name)
+            target_slot = entry["slot"]
+
+            # If original slot is occupied, find the next empty slot
+            if target_slot in occupied_slots:
+                found = None
+                for s in range(1, total_slots + 2):
+                    if s not in occupied_slots:
+                        found = s
+                        break
+                if found:
+                    log(f"    Slot {target_slot} occupied, using slot {found} "
+                        f"for '{display_name}'")
+                    target_slot = found
+                    entry["slot"] = found  # update so _restore_source_clip matches
+
             try:
-                api.open_clip_source(layer, entry["slot"], entry["source_name"])
-                log(f"    + Opened source '{entry['source_name']}' in slot {entry['slot']}")
+                api.open_clip_source(layer, target_slot, open_name)
+                occupied_slots.add(target_slot)
+                log(f"    + Opened source '{open_name}' as '{display_name}' "
+                    f"in slot {target_slot}")
             except Exception as exc:
-                log(f"    Warning: could not open source '{entry['source_name']}': {exc}")
+                log(f"    Warning: could not open source '{open_name}': {exc}")
         # Give Arena time to process the opened sources
         time.sleep(0.5)
 

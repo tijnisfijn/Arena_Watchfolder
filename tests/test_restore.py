@@ -1,6 +1,7 @@
 """Tests for restore.py — pure functions that match/flatten effect parameters."""
 
 import pytest
+from unittest.mock import MagicMock, call
 from restore import (
     extract_effect_name,
     _get_clip_name,
@@ -10,6 +11,7 @@ from restore import (
     _flatten_params,
     _strip_nulls,
     _restorable_sections,
+    restore_snapshot,
 )
 
 
@@ -322,3 +324,96 @@ class TestRestorableSections:
         sections = _restorable_sections(clip_data)
         assert any("beatsnap" in s for s in sections)
         assert any("faderstart" in s for s in sections)
+
+
+# ---------------------------------------------------------------------------
+# restore_snapshot — Phase 1 source_type usage
+# ---------------------------------------------------------------------------
+
+class TestRestoreSnapshotPhase1:
+    def _make_api(self, layer_clips=None):
+        api = MagicMock()
+        api.get_layer_clips.return_value = layer_clips or []
+        api.open_clip_source.return_value = None
+        api.set_clip_properties.return_value = None
+        return api
+
+    def test_uses_source_type_over_source_name(self):
+        """When source_type is available, it should be used to open the source."""
+        api = self._make_api(layer_clips=[
+            {"slot": 1, "path": None, "data": None},
+        ])
+        snapshot = [{
+            "slot": 1,
+            "source_name": "Spinner",
+            "source_type": "Shaper",
+            "filename": None,
+            "data": {"name": {"value": "Spinner"}},
+        }]
+        restore_snapshot(api, 1, snapshot, logger=lambda x: None)
+        api.open_clip_source.assert_called_once_with(1, 1, "Shaper")
+
+    def test_falls_back_to_source_name(self):
+        """Old snapshots without source_type should still use source_name."""
+        api = self._make_api(layer_clips=[
+            {"slot": 1, "path": None, "data": None},
+        ])
+        snapshot = [{
+            "slot": 1,
+            "source_name": "Metaballs",
+            "filename": None,
+            "data": {"name": "Metaballs"},
+        }]
+        restore_snapshot(api, 1, snapshot, logger=lambda x: None)
+        api.open_clip_source.assert_called_once_with(1, 1, "Metaballs")
+
+    def test_slot_conflict_finds_empty(self):
+        """If the original slot is occupied, find the next empty slot."""
+        api = self._make_api(layer_clips=[
+            {"slot": 1, "path": "/file.mov", "data": {"name": "file"}},
+            {"slot": 2, "path": None, "data": None},
+            {"slot": 3, "path": None, "data": None},
+        ])
+        snapshot = [{
+            "slot": 1,
+            "source_name": "Spinner",
+            "source_type": "Shaper",
+            "filename": None,
+            "data": {"name": {"value": "Spinner"}},
+        }]
+        restore_snapshot(api, 1, snapshot, logger=lambda x: None)
+        # Slot 1 is occupied by a file, should use slot 2
+        api.open_clip_source.assert_called_once_with(1, 2, "Shaper")
+
+    def test_include_remembered_sources(self):
+        """With include_remembered=True, remembered sources are restored."""
+        api = self._make_api(layer_clips=[
+            {"slot": 1, "path": None, "data": None},
+        ])
+        snapshot = [{
+            "slot": 1,
+            "source_name": "Eyes",
+            "source_type": "Sine Wave",
+            "filename": None,
+            "data": {"name": {"value": "Eyes"}},
+            "remembered": True,
+        }]
+        restore_snapshot(api, 1, snapshot, logger=lambda x: None,
+                        include_remembered=True)
+        api.open_clip_source.assert_called_once_with(1, 1, "Sine Wave")
+
+    def test_remembered_sources_skipped_by_default(self):
+        """Without include_remembered, remembered sources are not opened."""
+        api = self._make_api(layer_clips=[
+            {"slot": 1, "path": None, "data": None},
+        ])
+        snapshot = [{
+            "slot": 1,
+            "source_name": "Eyes",
+            "source_type": "Sine Wave",
+            "filename": None,
+            "data": {"name": {"value": "Eyes"}},
+            "remembered": True,
+        }]
+        restore_snapshot(api, 1, snapshot, logger=lambda x: None)
+        api.open_clip_source.assert_not_called()

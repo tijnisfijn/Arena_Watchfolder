@@ -27,13 +27,6 @@ HIDDEN_IMPORTS = [
     "config",
     "restore",
     "arena_ws",
-    # pywebview
-    "webview",
-    # System tray (Windows/Linux)
-    "pystray",
-    "PIL",
-    "PIL.Image",
-    "PIL.ImageDraw",
     # Watchdog (imported inside watch_folder())
     "watchdog",
     "watchdog.observers",
@@ -42,6 +35,14 @@ HIDDEN_IMPORTS = [
     # WebSocket (conditionally imported)
     "websocket",
 ]
+
+# Optional desktop dependencies — only include if installed
+for _pkg in ["webview", "pystray", "PIL", "PIL.Image", "PIL.ImageDraw"]:
+    try:
+        __import__(_pkg.split(".")[0])
+        HIDDEN_IMPORTS.append(_pkg)
+    except ImportError:
+        pass
 
 # Data files to bundle: (source, dest_dir_in_bundle)
 DATA_FILES = [
@@ -130,7 +131,7 @@ def main():
         print("PyInstaller not found. Installing...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller"])
 
-    # Check desktop dependencies
+    # Check desktop dependencies (optional — app falls back to web UI mode)
     missing = []
     for pkg, name in [("webview", "pywebview"), ("PIL", "Pillow")]:
         try:
@@ -138,8 +139,12 @@ def main():
         except ImportError:
             missing.append(name)
     if missing:
-        print(f"Installing missing desktop dependencies: {', '.join(missing)}")
-        subprocess.check_call([sys.executable, "-m", "pip", "install"] + missing)
+        print(f"Installing optional desktop dependencies: {', '.join(missing)}")
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install"] + missing)
+        except subprocess.CalledProcessError:
+            print(f"  Warning: Could not install {', '.join(missing)}.")
+            print(f"  The app will use web UI mode (opens in browser) instead of a native window.")
 
     build()
 

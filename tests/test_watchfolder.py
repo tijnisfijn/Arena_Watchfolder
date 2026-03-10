@@ -14,10 +14,13 @@ from watchfolder import (
     normalize_path,
     _sanitize_dirname,
     _extract_clip_name,
+    _extract_source_type,
     scan_folder,
+    sync_folder_to_layer,
     merge_snapshots,
     load_combined_snapshot,
     save_combined_snapshot,
+    merge_with_combined,
     get_cross_layer_entries,
     SNAPSHOT_FILENAME,
 )
@@ -87,6 +90,37 @@ class TestExtractClipName:
 
 
 # ---------------------------------------------------------------------------
+# _extract_source_type
+# ---------------------------------------------------------------------------
+
+class TestExtractSourceType:
+    def test_basic(self):
+        clip = {"video": {"description": "Shaper"}}
+        assert _extract_source_type(clip) == "Shaper"
+
+    def test_no_video(self):
+        assert _extract_source_type({}) == ""
+
+    def test_no_description(self):
+        assert _extract_source_type({"video": {}}) == ""
+
+    def test_description_none(self):
+        assert _extract_source_type({"video": {"description": None}}) == ""
+
+    def test_description_not_string(self):
+        assert _extract_source_type({"video": {"description": 42}}) == ""
+
+    def test_real_arena_clip(self):
+        """Simulate a renamed generator where name != source type."""
+        clip = {
+            "name": {"value": "Spinner"},
+            "video": {"description": "Shaper"},
+        }
+        assert _extract_source_type(clip) == "Shaper"
+        assert _extract_clip_name(clip) == "Spinner"
+
+
+# ---------------------------------------------------------------------------
 # scan_folder
 # ---------------------------------------------------------------------------
 
@@ -120,6 +154,82 @@ class TestScanFolder:
         (tmp_path / "video.mov").touch()
         result = scan_folder(str(tmp_path))
         assert len(result) == 1
+
+
+# ---------------------------------------------------------------------------
+# sync_folder_to_layer — snapshot-aware slot placement
+# ---------------------------------------------------------------------------
+
+class TestSyncSlotPlacement:
+    def _make_api(self):
+        api = MagicMock()
+        api.get_column_count.return_value = 20
+        api.get_layer_name.return_value = "Layer 1"
+        api.clear_layer_clips.return_value = None
+        api.batch_open_clips.return_value = None
+        api.grow_columns.return_value = None
+        return api
+
+    def test_force_sync_uses_snapshot_slots(self, tmp_path):
+        """Files should be placed in their original snapshot slots."""
+        (tmp_path / "a.mov").touch()
+        (tmp_path / "b.mov").touch()
+        api = self._make_api()
+        snapshot = [
+            {"slot": 5, "filename": "a.mov", "data": {"x": 1}},
+            {"slot": 10, "filename": "b.mov", "data": {"y": 2}},
+        ]
+        sync_folder_to_layer(api, str(tmp_path), 1, force_full=True, snapshot=snapshot)
+        pairs = api.batch_open_clips.call_args[0][1]
+        slot_map = {Path(f).name: s for s, f in pairs}
+        assert slot_map["a.mov"] == 5
+        assert slot_map["b.mov"] == 10
+
+    def test_force_sync_reserves_generator_slots(self, tmp_path):
+        """New files should not be placed in generator-reserved slots."""
+        (tmp_path / "new.mov").touch()
+        api = self._make_api()
+        snapshot = [
+            {"slot": 1, "source_name": "Metaballs", "source_type": "Metaballs",
+             "filename": None, "data": {"gen": True}},
+            {"slot": 2, "source_name": "Shaper", "source_type": "Shaper",
+             "filename": None, "data": {"gen": True}},
+        ]
+        sync_folder_to_layer(api, str(tmp_path), 1, force_full=True, snapshot=snapshot)
+        pairs = api.batch_open_clips.call_args[0][1]
+        slots_used = {s for s, _ in pairs}
+        assert 1 not in slots_used  # reserved for Metaballs
+        assert 2 not in slots_used  # reserved for Shaper
+        assert 3 in slots_used  # new file goes to first free slot
+
+    def test_force_sync_no_snapshot_sequential(self, tmp_path):
+        """Without snapshot, files should be placed sequentially."""
+        (tmp_path / "a.mov").touch()
+        (tmp_path / "b.mov").touch()
+        api = self._make_api()
+        sync_folder_to_layer(api, str(tmp_path), 1, force_full=True, snapshot=None)
+        pairs = api.batch_open_clips.call_args[0][1]
+        assert pairs[0][0] == 1
+        assert pairs[1][0] == 2
+
+    def test_force_sync_mixed_known_and_new_files(self, tmp_path):
+        """Known files use snapshot slots, new files fill remaining gaps."""
+        (tmp_path / "a.mov").touch()
+        (tmp_path / "b.mov").touch()
+        (tmp_path / "new.mov").touch()
+        api = self._make_api()
+        snapshot = [
+            {"slot": 1, "source_name": "Gen", "source_type": "Gen",
+             "filename": None, "data": {"gen": True}},
+            {"slot": 3, "filename": "a.mov", "data": {"x": 1}},
+            {"slot": 5, "filename": "b.mov", "data": {"y": 2}},
+        ]
+        sync_folder_to_layer(api, str(tmp_path), 1, force_full=True, snapshot=snapshot)
+        pairs = api.batch_open_clips.call_args[0][1]
+        slot_map = {Path(f).name: s for s, f in pairs}
+        assert slot_map["a.mov"] == 3
+        assert slot_map["b.mov"] == 5
+        assert slot_map["new.mov"] == 2  # skips 1 (reserved for Gen)
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +284,27 @@ class TestMergeSnapshots:
         assert len(result) == 1
         assert result[0]["data"]["color"] == "blue"
 
+    def test_source_type_preserved_in_remembered(self):
+        old = [{"slot": 3, "source_name": "Spinner", "source_type": "Shaper",
+                "filename": None, "data": {"params": True}}]
+        new = []
+        result = merge_snapshots(old, new)
+        remembered = [e for e in result if e.get("remembered")]
+        assert len(remembered) == 1
+        assert remembered[0]["source_type"] == "Shaper"
+        assert remembered[0]["source_name"] == "Spinner"
+
+    def test_source_type_none_when_not_present(self):
+        """Old snapshots without source_type should still work."""
+        old = [{"slot": 3, "source_name": "Metaballs", "filename": None,
+                "data": {"x": 1}}]
+        new = []
+        result = merge_snapshots(old, new)
+        remembered = [e for e in result if e.get("remembered")]
+        assert len(remembered) == 1
+        assert remembered[0].get("source_type") is None
+        assert remembered[0]["source_name"] == "Metaballs"
+
 
 # ---------------------------------------------------------------------------
 # Combined snapshot file I/O
@@ -225,6 +356,64 @@ class TestCombinedSnapshot:
         save_combined_snapshot(str(tmp_path), 1, "/path", snap, "Test")
         result = load_combined_snapshot(str(tmp_path))
         assert len(result["layers"]["1"]["clips"]) == 1
+
+    def test_source_entries_persisted(self, tmp_path):
+        """Generated source entries (no filename, has source_name) should be saved."""
+        snap = [
+            {"slot": 1, "filename": "a.mov", "data": {"x": 1}},
+            {"slot": 3, "source_name": "Spinner", "source_type": "Shaper",
+             "filename": None, "data": {"params": True}},
+        ]
+        save_combined_snapshot(str(tmp_path), 1, "/path", snap, "Test")
+        result = load_combined_snapshot(str(tmp_path))
+        clips = result["layers"]["1"]["clips"]
+        assert len(clips) == 2
+        source_clip = next(c for c in clips if c.get("source_name"))
+        assert source_clip["source_name"] == "Spinner"
+        assert source_clip["source_type"] == "Shaper"
+
+    def test_empty_slots_not_persisted(self, tmp_path):
+        """Empty slots (no filename AND no source_name) should be filtered out."""
+        snap = [
+            {"slot": 1, "filename": None, "source_name": None, "data": None},
+            {"slot": 2, "source_name": "Metaballs", "filename": None,
+             "data": {"y": 2}},
+        ]
+        save_combined_snapshot(str(tmp_path), 1, "/path", snap, "Test")
+        result = load_combined_snapshot(str(tmp_path))
+        clips = result["layers"]["1"]["clips"]
+        assert len(clips) == 1
+        assert clips[0]["source_name"] == "Metaballs"
+
+
+class TestMergeWithCombined:
+    def test_source_entries_merged(self, tmp_path):
+        """Source entries from combined file should supplement config snap."""
+        combined_snap = [
+            {"slot": 3, "source_name": "Spinner", "source_type": "Shaper",
+             "filename": None, "data": {"params": True}},
+        ]
+        save_combined_snapshot(str(tmp_path), 1, "/path", combined_snap, "Test")
+        config_snap = [{"slot": 1, "filename": "a.mov", "data": {"x": 1}}]
+        result = merge_with_combined(config_snap, str(tmp_path), 1)
+        assert len(result) == 2
+        source = next(e for e in result if e.get("source_name"))
+        assert source["source_type"] == "Shaper"
+
+    def test_source_entries_not_duplicated(self, tmp_path):
+        """Source already in config_snap should not be duplicated."""
+        combined_snap = [
+            {"slot": 3, "source_name": "Spinner", "source_type": "Shaper",
+             "filename": None, "data": {"old": True}},
+        ]
+        save_combined_snapshot(str(tmp_path), 1, "/path", combined_snap, "Test")
+        config_snap = [
+            {"slot": 3, "source_name": "Spinner", "source_type": "Shaper",
+             "filename": None, "data": {"new": True}},
+        ]
+        result = merge_with_combined(config_snap, str(tmp_path), 1)
+        assert len(result) == 1
+        assert result[0]["data"]["new"] is True
 
 
 class TestGetCrossLayerEntries:

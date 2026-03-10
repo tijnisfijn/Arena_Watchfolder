@@ -35,7 +35,7 @@ import sys
 import threading
 import time
 import urllib.parse
-from collections import Counter
+from collections import Counter, deque
 from datetime import datetime
 from pathlib import Path
 
@@ -78,16 +78,14 @@ class LogManager:
     """Thread-safe log buffer with SSE streaming support."""
 
     def __init__(self):
-        self._messages = []
-        self._subscribers = []
+        self._messages: deque = deque(maxlen=500)
+        self._subscribers: list[queue.Queue] = []
         self._lock = threading.Lock()
 
     def log(self, message: str):
         entry = {"time": datetime.now().isoformat(), "text": message}
         with self._lock:
             self._messages.append(entry)
-            if len(self._messages) > 500:
-                self._messages = self._messages[-500:]
             for q in self._subscribers:
                 q.put(entry)
 
@@ -447,13 +445,30 @@ def _extract_clip_name(clip_data: dict) -> str:
     return ""
 
 
+def _extract_source_type(clip_data: dict) -> str:
+    """Extract the real source type from a clip's video.description field.
+
+    For generated sources, Arena stores the original source type name in
+    video.description even when the user renames the clip.  This is the
+    name needed for source:///video/{name} URIs.
+    """
+    video = clip_data.get("video")
+    if not video:
+        return ""
+    desc = video.get("description")
+    if isinstance(desc, str):
+        return desc
+    return ""
+
+
 def snapshot_layer(api: ArenaAPI, layer: int) -> list[dict]:
     """Capture the full state of all clips on a layer.
 
     Returns a list of dicts, one per slot:
         [{"slot": 1, "filename": "logo.mov", "path": "/full/path/logo.mov", "data": {clip JSON}}, ...]
     Empty slots are included with filename=None.
-    Generated sources (no file path but connected) are stored with source_name.
+    Generated sources (no file path but connected) are stored with source_name
+    and source_type (the real Arena source type from video.description).
     """
     clips = api.get_layer_clips(layer)
     snapshot = []
@@ -468,10 +483,12 @@ def snapshot_layer(api: ArenaAPI, layer: int) -> list[dict]:
         elif clip["data"]:
             # Generated source — no file but has clip data
             source_name = _extract_clip_name(clip["data"])
+            source_type = _extract_source_type(clip["data"])
             snapshot.append({
                 "slot": clip["slot"],
                 "filename": None,
                 "source_name": source_name or "Unknown Source",
+                "source_type": source_type or source_name or "Unknown Source",
                 "path": None,
                 "data": clip["data"],
             })
@@ -525,6 +542,7 @@ def merge_snapshots(old_snap: list[dict] | None, new_snap: list[dict]) -> list[d
                 "slot": entry.get("slot"),
                 "filename": None,
                 "source_name": sname,
+                "source_type": entry.get("source_type"),
                 "path": None,
                 "data": entry["data"],
                 "remembered": True,
@@ -588,8 +606,9 @@ def save_combined_snapshot(snapshot_folder: str, layer: int, folder_path: str,
     combined["composition"] = composition_name
     combined["timestamp"] = datetime.now().isoformat(timespec="seconds")
 
-    # Update this layer (only entries with data)
-    clips = [e for e in merged_snapshot if e.get("filename") and e.get("data")]
+    # Update this layer (only entries with data — files and generated sources)
+    clips = [e for e in merged_snapshot
+             if (e.get("filename") or e.get("source_name")) and e.get("data")]
     combined.setdefault("layers", {})[str(layer)] = {
         "folder": folder_path,
         "clips": clips,
@@ -641,11 +660,18 @@ def merge_with_combined(config_snap: list[dict] | None,
     if not config_snap:
         return combined_clips
 
-    # Config filenames take priority
+    # Config entries take priority — merge by filename and by (source_name, slot)
     config_filenames = {e["filename"] for e in config_snap if e.get("filename")}
+    config_sources = {
+        (e.get("source_name"), e.get("slot"))
+        for e in config_snap if e.get("source_name")
+    }
     merged = list(config_snap)
     for entry in combined_clips:
         if entry.get("filename") and entry["filename"] not in config_filenames:
+            merged.append(entry)
+        elif (entry.get("source_name")
+              and (entry.get("source_name"), entry.get("slot")) not in config_sources):
             merged.append(entry)
     return merged
 
@@ -865,6 +891,75 @@ def recreate_duplicates(api: ArenaAPI, layer: int, snapshot: list[dict],
                 log(f"    Warning: could not recreate duplicate in slot {slot}: {exc}")
         log(f"  Recreated {extras} duplicate(s) of {filename}")
 
+    # --- Phase 3: Recreate duplicate generated sources ---
+    source_entries = [
+        e for e in snapshot
+        if e.get("source_name") and e.get("data") and e.get("slot") is not None
+        and not e.get("remembered")
+    ]
+    if not source_entries:
+        return
+
+    # Count source instances by source_type (the actual Arena source)
+    source_type_counts = Counter(
+        e.get("source_type") or e.get("source_name")
+        for e in source_entries
+    )
+    duplicated_types = {t: c for t, c in source_type_counts.items() if c > 1}
+    if not duplicated_types:
+        return
+
+    # Re-read current layer state
+    current_clips = api.get_layer_clips(layer)
+
+    # Count current generators by their video.description (real type)
+    current_source_types = Counter()
+    for c in current_clips:
+        if not c["path"] and c["data"]:
+            video = c["data"].get("video") or {}
+            desc = video.get("description", "")
+            if desc:
+                current_source_types[desc] += 1
+
+    for source_type, snap_count in duplicated_types.items():
+        current_count = current_source_types.get(source_type, 0)
+        extras = snap_count - current_count
+        if extras <= 0:
+            continue
+
+        # Find original slots from snapshot for this source type
+        original_slots = [
+            e["slot"] for e in source_entries
+            if (e.get("source_type") or e.get("source_name")) == source_type
+        ]
+        occupied_slots = {
+            c["slot"] for c in current_clips
+            if c["path"] or c["data"]
+        }
+        preferred_slots = [s for s in original_slots if s not in occupied_slots]
+
+        # Grow columns if needed
+        max_slot = max(original_slots) if original_slots else 0
+        total_needed = max(max_slot, len(current_clips) + extras)
+        api.grow_columns(total_needed)
+
+        for i in range(extras):
+            if preferred_slots:
+                slot = preferred_slots.pop(0)
+            else:
+                refreshed = api.get_layer_clips(layer)
+                occupied = {c["slot"] for c in refreshed if c["path"] or c["data"]}
+                slot = next(
+                    (c["slot"] for c in refreshed if c["slot"] not in occupied),
+                    len(refreshed) + 1,
+                )
+            try:
+                api.open_clip_source(layer, slot, source_type)
+                occupied_slots.add(slot)
+            except Exception as exc:
+                log(f"    Warning: could not recreate duplicate source in slot {slot}: {exc}")
+        log(f"  Recreated {extras} duplicate(s) of source '{source_type}'")
+
 
 def sync_folder_to_layer(api: ArenaAPI, folder: str, layer: int,
                          dry_run: bool = False, force_full: bool = False,
@@ -889,18 +984,64 @@ def sync_folder_to_layer(api: ArenaAPI, folder: str, layer: int,
         log("  [DRY RUN] -- no changes made.")
         return {"files": files, "added": [], "removed": [], "returning": []}
 
-    # Ensure enough columns
-    current_cols = api.get_column_count()
-    if len(files) > current_cols:
-        log(f"  Expanding columns: {current_cols} -> {len(files)}")
-        api.grow_columns(len(files))
-
     # --- Force full (destructive) sync ---
     if force_full:
         layer_name = api.get_layer_name(layer)
         log(f"  Full re-sync: clearing all clips on {layer_name}...")
         api.clear_layer_clips(layer)
-        pairs = [(i, f) for i, f in enumerate(files, start=1)]
+
+        # Build snapshot-aware slot assignments when a snapshot is available
+        if snapshot:
+            # Map filename -> first snapshot slot (one per unique file;
+            # recreate_duplicates() handles extra copies later).
+            snap_slots: dict[str, int] = {}
+            for entry in snapshot:
+                fn = entry.get("filename")
+                if fn and fn not in snap_slots and entry.get("slot") is not None:
+                    snap_slots[fn] = entry["slot"]
+
+            # Slots reserved for generators (entries with source_name, no file)
+            reserved_slots = {
+                entry["slot"] for entry in snapshot
+                if entry.get("source_name") and not entry.get("filename")
+                and entry.get("slot") is not None
+            }
+
+            # Assign slots: known files -> snapshot slot, new files -> first free
+            pairs = []
+            used_slots = set(reserved_slots)
+            unplaced = []
+            for f in files:
+                fname = Path(f).name
+                if fname in snap_slots:
+                    slot = snap_slots[fname]
+                    pairs.append((slot, f))
+                    used_slots.add(slot)
+                else:
+                    unplaced.append(f)
+
+            # Place new files (not in snapshot) in first available slots
+            next_slot = 1
+            for f in unplaced:
+                while next_slot in used_slots:
+                    next_slot += 1
+                pairs.append((next_slot, f))
+                used_slots.add(next_slot)
+                next_slot += 1
+
+            # Ensure enough columns for the highest slot
+            max_slot = max((s for s, _ in pairs), default=0)
+            max_snap_slot = max(
+                (e["slot"] for e in snapshot if e.get("slot") is not None),
+                default=0,
+            )
+            needed = max(max_slot, max_snap_slot, len(files))
+        else:
+            # No snapshot — sequential placement (original behavior)
+            pairs = [(i, f) for i, f in enumerate(files, start=1)]
+            needed = len(files)
+
+        api.grow_columns(needed)
         log(f"  Loading {len(files)} clip(s)...")
         api.batch_open_clips(layer, pairs)
         log("  Sync complete!")
@@ -1343,6 +1484,8 @@ def create_web_app(desktop_mode=False):
         })
         _state["next_id"] = 2
 
+    _state_lock = threading.RLock()
+
     # Auto-connect to Arena on startup using saved host/port
     try:
         _state["api"] = ArenaAPI(
@@ -1354,8 +1497,9 @@ def create_web_app(desktop_mode=False):
         log("  Arena not reachable — connect manually")
 
     def _next_id():
-        nid = str(_state["next_id"])
-        _state["next_id"] += 1
+        with _state_lock:
+            nid = str(_state["next_id"])
+            _state["next_id"] += 1
         return nid
 
     def _find_set(set_id):
@@ -1379,26 +1523,27 @@ def create_web_app(desktop_mode=False):
         }
 
     def _save():
-        save_config({
-            "host": _state["host"],
-            "port": _state["port"],
-            "active_set_id": _state["active_set_id"],
-            "options": _state["options"],
-            "locked_composition": _state.get("locked_composition"),
-            "locked_deck": _state.get("locked_deck"),
-            "sets": [
-                {
-                    "id": s["id"],
-                    "name": s["name"],
-                    "mappings": [
-                        {"id": m["id"], "folder": m["folder"], "layer": m["layer"]}
-                        for m in s["mappings"]
-                    ],
-                    "snapshots": s.get("snapshots", {}),
-                }
-                for s in _state["sets"]
-            ],
-        })
+        with _state_lock:
+            save_config({
+                "host": _state["host"],
+                "port": _state["port"],
+                "active_set_id": _state["active_set_id"],
+                "options": _state["options"],
+                "locked_composition": _state.get("locked_composition"),
+                "locked_deck": _state.get("locked_deck"),
+                "sets": [
+                    {
+                        "id": s["id"],
+                        "name": s["name"],
+                        "mappings": [
+                            {"id": m["id"], "folder": m["folder"], "layer": m["layer"]}
+                            for m in s["mappings"]
+                        ],
+                        "snapshots": s.get("snapshots", {}),
+                    }
+                    for s in _state["sets"]
+                ],
+            })
 
     # --- Composition lock guard ---
 
@@ -1637,9 +1782,10 @@ def create_web_app(desktop_mode=False):
         except (ValueError, TypeError):
             return jsonify({"ok": False, "error": "Invalid port number"}), 400
         try:
-            _state["api"] = ArenaAPI(host=host, port=port)
-            _state["host"] = host
-            _state["port"] = port
+            with _state_lock:
+                _state["api"] = ArenaAPI(host=host, port=port)
+                _state["host"] = host
+                _state["port"] = port
             _save()
             # Warn if composition/deck doesn't match lock
             ok, err = _check_all_locks()
@@ -1648,7 +1794,8 @@ def create_web_app(desktop_mode=False):
                 return jsonify({"ok": True, "warning": err})
             return jsonify({"ok": True})
         except ArenaConnectionError as e:
-            _state["api"] = None
+            with _state_lock:
+                _state["api"] = None
             log(f"  ERROR: {e}")
             return jsonify({"ok": False, "error": str(e)}), 400
 
@@ -2330,14 +2477,15 @@ def create_web_app(desktop_mode=False):
         # Schedule shutdown after response is sent
         def do_shutdown():
             time.sleep(0.5)
-            os._exit(0)
+            # Use sys.exit for clean shutdown (runs atexit handlers / finally blocks)
+            sys.exit(0)
         threading.Thread(target=do_shutdown, daemon=True).start()
         return jsonify({"ok": True})
 
     @app.route("/api/logs/history")
     def logs_history():
         """Return buffered log messages as JSON (for debugging)."""
-        return jsonify(log_manager._messages)
+        return jsonify(list(log_manager._messages))
 
     @app.route("/api/logs")
     def logs_stream():
@@ -2480,11 +2628,12 @@ Add --json to any subcommand for machine-readable output.
             from desktop import main as desktop_main
             desktop_main()
         except ImportError as e:
-            print(f"ERROR: Desktop mode requires pywebview and pystray. Install with:")
-            print(f"  pip install pywebview pystray Pillow")
-            print(f"  (Error: {e})")
-            sys.exit(1)
-        return
+            # pywebview not available — fall back to web UI with browser
+            print(f"  Desktop mode not available ({e}), launching web UI instead...")
+            args.ui = True
+            args.desktop = False
+        else:
+            return
 
     # --- Web UI mode ---
     if args.ui:
@@ -2499,7 +2648,11 @@ Add --json to any subcommand for machine-readable output.
         print()
         print(f"  Web UI -> http://127.0.0.1:{args.ui_port}")
         print()
-        app.run(host="0.0.0.0", port=args.ui_port, debug=False, threaded=True)
+        # Auto-open browser when running as a standalone app
+        if getattr(sys, "frozen", False):
+            import webbrowser
+            threading.Timer(1.5, webbrowser.open, args=[f"http://127.0.0.1:{args.ui_port}"]).start()
+        app.run(host="127.0.0.1", port=args.ui_port, debug=False, threaded=True)
         return
 
     # --- Legacy CLI mode (--folder / --layer) ---
