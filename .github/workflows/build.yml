@@ -1,0 +1,181 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - "v*"          # Trigger on version tags like v1.0.0
+  workflow_dispatch:   # Allow manual trigger from Actions tab
+
+permissions:
+  contents: write      # Needed to create releases
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Windows build
+  # ---------------------------------------------------------------------------
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: python build.py --clean
+
+      - name: Upload unsigned artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Arena-Watchfolder-Windows-unsigned
+          path: dist/Arena Watchfolder/
+          retention-days: 5
+
+      # -----------------------------------------------------------------
+      # SignPath code signing (activate after SignPath Foundation approval)
+      # -----------------------------------------------------------------
+      # To enable:
+      # 1. Apply at https://signpath.org — email with your GitHub repo link
+      # 2. Install the SignPath GitHub App on this repo
+      # 3. Add SIGNPATH_API_TOKEN to repo secrets
+      # 4. Fill in organization-id, project-slug, signing-policy-slug
+      # 5. Uncomment the block below
+      #
+      # - name: Sign with SignPath
+      #   uses: signpath/github-action-submit-signing-request@v1
+      #   with:
+      #     api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+      #     organization-id: "YOUR_ORG_ID"
+      #     project-slug: "arena-watchfolder"
+      #     signing-policy-slug: "release-signing"
+      #     github-artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      #     wait-for-completion: true
+      #     output-artifact-directory: dist/Arena Watchfolder Signed
+
+      - name: Create ZIP for release
+        shell: bash
+        run: |
+          cd dist
+          7z a -tzip "../Arena-Watchfolder-Windows.zip" "Arena Watchfolder/"
+
+      - name: Upload release ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: Arena-Watchfolder-Windows
+          path: Arena-Watchfolder-Windows.zip
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # macOS build
+  # ---------------------------------------------------------------------------
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: python build.py --clean
+
+      # -----------------------------------------------------------------
+      # macOS code signing (activate with Apple Developer Program)
+      # -----------------------------------------------------------------
+      # To enable:
+      # 1. Enroll in Apple Developer Program ($99/year)
+      # 2. Create a "Developer ID Application" certificate
+      # 3. Export as .p12 and base64-encode it
+      # 4. Add these repo secrets:
+      #    - APPLE_CERTIFICATE_BASE64
+      #    - APPLE_CERTIFICATE_PASSWORD
+      #    - APPLE_ID  (your Apple ID email)
+      #    - APPLE_TEAM_ID
+      #    - APPLE_APP_PASSWORD  (app-specific password)
+      # 5. Uncomment the block below
+      #
+      # - name: Import Apple certificate
+      #   env:
+      #     CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+      #     CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      #   run: |
+      #     CERTIFICATE_PATH=$RUNNER_TEMP/certificate.p12
+      #     KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+      #     echo -n "$CERTIFICATE_BASE64" | base64 --decode -o $CERTIFICATE_PATH
+      #     security create-keychain -p "" $KEYCHAIN_PATH
+      #     security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+      #     security unlock-keychain -p "" $KEYCHAIN_PATH
+      #     security import $CERTIFICATE_PATH -P "$CERTIFICATE_PASSWORD" \
+      #       -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+      #     security list-keychain -d user -s $KEYCHAIN_PATH
+      #
+      # - name: Sign and notarize
+      #   env:
+      #     APPLE_ID: ${{ secrets.APPLE_ID }}
+      #     APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      #     APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+      #   run: |
+      #     APP_PATH="dist/Arena Watchfolder.app"
+      #     codesign --force --deep --sign "Developer ID Application" \
+      #       --options runtime "$APP_PATH"
+      #     ditto -c -k --keepParent "$APP_PATH" "Arena-Watchfolder-macOS.zip"
+      #     xcrun notarytool submit "Arena-Watchfolder-macOS.zip" \
+      #       --apple-id "$APPLE_ID" \
+      #       --team-id "$APPLE_TEAM_ID" \
+      #       --password "$APPLE_APP_PASSWORD" \
+      #       --wait
+      #     xcrun stapler staple "$APP_PATH"
+
+      - name: Create ZIP for release
+        run: |
+          cd dist
+          ditto -c -k --keepParent "Arena Watchfolder.app" "../Arena-Watchfolder-macOS.zip"
+
+      - name: Upload release ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: Arena-Watchfolder-macOS
+          path: Arena-Watchfolder-macOS.zip
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # Create GitHub Release (only on version tags)
+  # ---------------------------------------------------------------------------
+  release:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Arena-Watchfolder-Windows
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Arena-Watchfolder-macOS
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            Arena-Watchfolder-Windows.zip
+            Arena-Watchfolder-macOS.zip
