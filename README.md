@@ -15,13 +15,19 @@ Grab the latest release — no Python or terminal needed:
 | Platform | Status |
 |----------|--------|
 | **macOS** | ✅ Available now |
-| **Windows** | 🔜 Coming soon |
+| **Windows** | ✅ Available now |
 
 ### Install
 
-1. Download the `.zip` from the link above
-2. Unzip it and drag **Arena Watchfolder.app** to your Applications folder (or anywhere you like)
+**macOS:**
+1. Download `Arena-Watchfolder-macOS.zip` from the link above
+2. Unzip and drag **Arena Watchfolder.app** to your Applications folder (or anywhere you like)
 3. Double-click to launch — if macOS blocks it, right-click → **Open** → **Open**
+
+**Windows:**
+1. Download `Arena-Watchfolder-Windows.zip` from the link above
+2. Unzip and run **Arena Watchfolder.exe**
+3. If Windows SmartScreen appears, click **More info** → **Run anyway**
 
 > **Requirement:** Resolume Arena must be running with the web server enabled (Preferences → Webserver).
 
